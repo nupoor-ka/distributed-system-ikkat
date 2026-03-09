@@ -1,5 +1,5 @@
 # Ikkat - A Distributed File System
-the name is just random, I already had another repo named distributed system, so
+the name is random, needed one because I have another repo named distributed system
 
 ## Question
 
