@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package filesystem;
+
+option go_package = "./filesystem;filesystem";
+
+// =========================
+// ENUM
+// =========================
+enum FileMode {
+    READ = 0;
+    WRITE = 1;
+}
+
+// =========================
+// REQUESTS
+// =========================
+message FileRequest {
+    string request_id = 1;
+    string filename   = 2;
+    FileMode mode     = 3;
+}
+
+message CreateRequest {
+    string request_id = 1;
+    string filename   = 2;
+}
+
+message DeleteRequest {
+    string request_id = 1;
+    string filename   = 2;
+}
+
+message CloseRequest {
+    string request_id = 1;
+    int32 fd          = 2;
+    bool dirty        = 3;
+    int32 version     = 4;
+    bytes data        = 5;
+}
+
+// =========================
+// RESPONSES
+// =========================
+message OpenResponse {
+    int32 fd        = 1;
+    int32 version   = 2;
+    string message  = 3;
+    bytes data      = 4;
+}
+
+message CloseResponse {
+    string message = 1;
+    int32 version  = 2;
+}
+
+message DeleteResponse {
+    string message = 1;
+}
+
+// =========================
+// SERVICE
+// =========================
+service FileService {
+
+    // Open file (read or write)
+    rpc Open(FileRequest) returns (OpenResponse);
+
+    // Create new file (always write mode)
+    rpc Create(CreateRequest) returns (OpenResponse);
+
+    // Close file (commit changes if dirty)
+    rpc Close(CloseRequest) returns (CloseResponse);
+
+    // Delete file
+    rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
