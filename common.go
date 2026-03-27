@@ -9,9 +9,7 @@ import (
 	"strings"
 	// "sync"
 	// "time"
-
 	// pb "distributed-system-ikkat/filesystem"
-
 	// "google.golang.org/grpc/codes"
 	// "google.golang.org/grpc/status"
 )
@@ -26,7 +24,7 @@ const (
 
 func sanitizePath(p string) (string, error) {
 	safe := filepath.Clean(p)
-	if filepath.IsAbs(safe) || strings.HasPrefix(safe, "..") {
+	if filepath.IsAbs(safe) || strings.HasPrefix(safe, "..") || strings.HasPrefix(safe, "../") {
 		return "", fmt.Errorf("invalid path")
 	}
 	return safe, nil
@@ -39,20 +37,16 @@ func readLocalFile(path string, offset int64, size int64) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-
 	// move to offset
-	_, err = f.Seek(offset, 0)
+	_, err = f.Seek(offset, io.SeekStart) // offset, whence
 	if err != nil {
 		return nil, err
 	}
-
 	buf := make([]byte, size)
-
 	n, err := f.Read(buf)
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
-
 	return buf[:n], nil
 }
 
@@ -67,7 +61,7 @@ func writeLocalFile(path string, data []byte, offset int64) error {
 	defer f.Close()
 
 	// Move to offset
-	_, err = f.Seek(offset, 0)
+	_, err = f.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}

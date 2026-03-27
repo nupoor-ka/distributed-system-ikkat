@@ -51,18 +51,18 @@ type FileEntry struct {
 
 type RequestEntry struct {
 	response  interface{} // interface defines a set of methods M, used here to allow all types for response
-	timestamp time.Time // only types that implement M can use the interface, no methods - all types accepted
+	timestamp time.Time   // only types that implement M can use the interface, no methods - all types accepted
 }
 
 type server struct {
-	pb.UnimplementedFileServiceServer // the rpc interface
-	mu sync.Mutex // if you modify server-wide maps or counters, must hold this
-	files      map[int32]*FileMeta // file descriptor is the index to this map, map holds metadata
-	handleToFD map[string]int32    // do we really need both file handles and file descriptors?
-	table      map[string]*FileEntry // handle to entry
-	nextFD     int32 // fd for next file opened or created, increment after assigning
-	requests   map[string]*RequestEntry // handle to request?
-	rootDir    string
+	pb.UnimplementedFileServiceServer                          // the rpc interface
+	mu                                sync.Mutex               // if you modify server-wide maps or counters, must hold this
+	files                             map[int32]*FileMeta      // file descriptor is the index to this map, map holds metadata
+	handleToFD                        map[string]int32         // do we really need both file handles and file descriptors?
+	table                             map[string]*FileEntry    // handle to entry
+	nextFD                            int32                    // fd for next file opened or created, increment after assigning
+	requests                          map[string]*RequestEntry // handle to request?
+	rootDir                           string
 }
 
 func newServer() *server {
@@ -161,29 +161,26 @@ func (s *server) cleanupRequests() {
 	}
 }
 
+// check on all leases, if any have been inactive greater than timeout, revoke
 func (s *server) cleanupLeases() {
 	for {
 		time.Sleep(time.Minute)
-
-		s.mu.Lock()
+		s.mu.Lock() // because of the lock, is it too much overhead
 		for fd, meta := range s.files {
 			if time.Since(meta.lastSeen) > LeaseTimeout {
 				filename := meta.filename
 				mode := meta.mode
 				fileHandle := meta.file
-
-				// Remove from tracking
 				delete(s.files, fd)
-
-				// Release the file entry lock based on mode
+				s.mu.Unlock() // unlocking because getFileEntry will also want to acquire lock
 				entry := s.getFileEntry(filename)
 				if mode == ReadMode {
 					entry.ReleaseRead()
 				} else {
 					entry.ReleaseWrite()
 				}
-
 				fileHandle.Close()
+				s.mu.Lock()
 				fmt.Println("Lease expired FD:", fd)
 			}
 		}
@@ -191,13 +188,14 @@ func (s *server) cleanupLeases() {
 	}
 }
 
+// get file entry for filename
 func (s *server) getFileEntry(name string) *FileEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	entry, ok := s.table[name]
 	if !ok {
-		entry = &FileEntry{version: 1}
+		entry = NewFileEntry()
+		entry.version = 1
 		entry.cond = sync.NewCond(&entry.mu)
 		s.table[name] = entry
 	}
@@ -292,7 +290,7 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 	return resp, nil
 }
 
-func (s *server) Delete(ctx context.Context, req *pb.FileRequest) (*pb.DeleteResponse, error) {
+func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
 	// Request cache
 	s.mu.Lock()
 	if entry, ok := s.requests[req.RequestId]; ok &&
@@ -334,7 +332,8 @@ func (s *server) Delete(ctx context.Context, req *pb.FileRequest) (*pb.DeleteRes
 		)
 	}
 
-	//ock as writer (without waiting)
+	// lock as writer (without waiting)
+	// why? why not entry.AcquireWrite()?
 	entry.activeWriter = true
 
 	entry.mu.Unlock()
@@ -368,7 +367,7 @@ func (s *server) Delete(ctx context.Context, req *pb.FileRequest) (*pb.DeleteRes
 
 // Reading the Content file
 func readFullFile(f *os.File) ([]byte, error) {
-	_, err := f.Seek(0, 0)
+	_, err := f.Seek(0, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
@@ -377,9 +376,8 @@ func readFullFile(f *os.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	// reset pointer again
-	_, err = f.Seek(0, 0)
+	_, err = f.Seek(0, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +449,7 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 		resp := &pb.OpenResponse{
 			Fd:      fd,
 			Version: entry.version, // sending file version number, needed to check if cache is up to date, nka
-			Data:    data, // sending full file to client, nka
+			Data:    data,          // sending full file to client, nka
 			Message: "opened input",
 		}
 
@@ -636,6 +634,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 	}
 
 	s.mu.Lock()
+	meta.file.Close()
 	delete(s.files, req.Fd)
 	s.requests[req.RequestId] = &RequestEntry{
 		response:  resp,
@@ -675,7 +674,7 @@ func (s *server) cleanupTempFiles() {
 		}
 
 		// Extract original filename
-		original := strings.TrimSuffix(name, ".tmp")
+		original := strings.TrimSuffix(name, ".tmp") // why not safe, err := sanitizePath(original)
 		entry := s.getFileEntry(original)
 
 		entry.mu.Lock()
@@ -830,14 +829,14 @@ func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResp
 // respond to client who is checking if the version in their cache is the same as the latest on the server
 func (s *server) TestAuth(ctx context.Context, req *pb.TestAuthRequest) (*pb.TestAuthResponse, error) {
 	safe, err := sanitizePath(req.Filename)
-	if err!=nil{
+	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid path")
 	}
-    entry := s.getFileEntry(safe) // getting entry for file with this name from server
-    entry.mu.Lock() // acquire lock on file entry
-    version := entry.version // check version
-    entry.mu.Unlock() // release lock
-    return &pb.TestAuthResponse{ Version: version}, err // just returning version in response
+	entry := s.getFileEntry(safe)                      // getting entry for file with this name from server
+	entry.mu.Lock()                                    // acquire lock on file entry
+	version := entry.version                           // check version
+	entry.mu.Unlock()                                  // release lock
+	return &pb.TestAuthResponse{Version: version}, nil // just returning version in response
 }
 
 // func to send state update information from primary to backup
