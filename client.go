@@ -19,6 +19,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// create, open, read, write, close, commit operations are visible to client
+// create, open, close and commit interact with server
+// read, write, append should be local
+
 // no mutex for client since it is assumed that the client is single-threaded
 const (
 	rpcTimeout      = 3 * time.Second        //
@@ -29,12 +33,13 @@ const (
 )
 
 type CacheEntry struct { // one entry in the cache
-	Filename  string // name of file, was given to server for request
-	LocalPath string // path to this file on local device
-	Version   int32  // version, will be sent by server
-	Dirty     bool   // has it been altered
-	Fd        int32  // file descriptor
-	Closed    bool   // if true, this can be evicted, acc LRU
+	Filename  string      // name of file, was given to server for request
+	LocalPath string      // path to this file on local device
+	Version   int32       // version, will be sent by server
+	Dirty     bool        // has it been altered
+	Fd        int32       // file descriptor
+	Closed    bool        // if true, this can be evicted, acc LRU
+	Mode      pb.FileMode // ReadMode, WriteMode from common
 }
 
 type client struct {
@@ -65,11 +70,10 @@ func evictFromCache(c *client) error {
 		if !ok {
 			continue
 		}
-		if entry.Closed && !entry.Dirty {
+		if entry.Closed && !entry.Dirty && entry.Fd == 0{
 			os.Remove(entry.LocalPath)
 			delete(c.cache, name)
 			c.lru = append(c.lru[:i], c.lru[i+1:]...)
-			fmt.Println("Evicted:", name)
 			return nil // only need to remove one
 		}
 	}
@@ -88,13 +92,13 @@ func touchLRU(c *client, filename string) {
 }
 
 // retry for write, used by both commit and close
-func (c *client) retryWrite(req *pb.WriteRequest) (*pb.WriteResponse, error) {
+func (c *client) retryWrite(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResponse, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout) // setting timeout
-		r, err := c.server.Write(ctx, req)                                   // try write
-		cancel()                                                             // removes timer and context resources
-		if err == nil {                                                      // successful write
+		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
+		r, err := c.server.Write(ctx2, req)                  // try write
+		cancel()                                             // removes timer and context resources
+		if err == nil {                                      // successful write
 			return r, nil
 		}
 		lastErr = err
@@ -113,11 +117,11 @@ func (c *client) retryWrite(req *pb.WriteRequest) (*pb.WriteResponse, error) {
 func (c *client) testAuth(ctx context.Context, filename string) (*pb.TestAuthResponse, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
-		ctx, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
+		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
 		req := &pb.TestAuthRequest{
 			Filename: filename,
 		}
-		r, err := c.server.TestAuth(ctx, req) // try testauth
+		r, err := c.server.TestAuth(ctx2, req) // try testauth
 		cancel()
 		if err == nil { // successful write
 			return r, nil
@@ -150,8 +154,8 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 	var lastErr error = nil // adding retry logic
 	var resp *pb.OpenResponse
 	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
-		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout) // setting timeout
-		r, err := c.server.Create(ctx, req)                                  // try sending req
+		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
+		r, err := c.server.Create(ctx2, req)                 // try sending req
 		cancel()
 		if err == nil { // successful write
 			resp = r
@@ -197,11 +201,17 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 			return entry, nil
 		}
 		ta_resp, err := c.testAuth(ctx, filename)
-		if err != nil {
+		if err != nil { // error in testauth request
 			return nil, err
 		}
 		if entry.Version == ta_resp.Version {
+			if entry.Mode!=mode { // trying to open in a mode other than current
+				if entry.Mode == pb.FileMode(ReadMode){
+					return nil, status.Error(codes.FailedPrecondition, "file already open in read mode, to open in write, close file then open in write mode")
+				}
+			}
 			touchLRU(c, filename)
+			entry.Mode = mode
 			return entry, nil // returning same entry as cache had up-to-date version
 		}
 	}
@@ -220,8 +230,8 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 	var lastErr error = nil // adding retry logic
 	var resp *pb.OpenResponse
 	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
-		ctx, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
-		r, err := c.server.Open(ctx, req)                   // try sending req
+		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
+		r, err := c.server.Open(ctx2, req)                   // try sending req
 		cancel()
 		if err == nil { // successful write
 			resp = r
@@ -252,13 +262,14 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		Dirty:     false,
 		Fd:        resp.Fd,
 		Closed:    false,
+		Mode: mode,
 	}
 	c.cache[filename] = new_entry
 	touchLRU(c, filename)
 	return new_entry, nil
 }
 
-// send read request to server
+// send read request to server, currently always reading the whole file, doesn't allow partial reads
 func (c *client) Read(ctx context.Context, filename string) ([]byte, error) {
 	entry, ok := c.cache[filename]
 	if !ok { // never stored file in cache
@@ -272,14 +283,14 @@ func (c *client) Read(ctx context.Context, filename string) ([]byte, error) {
 	return data, nil
 }
 
-// file has been changed, send whole file to server
+// just write to file
 func (c *client) Write(ctx context.Context, filename string, data []byte) error {
 	entry, ok := c.cache[filename]
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
 	}
-	if entry.Fd == 0 {
-		return status.Error(codes.PermissionDenied, "not opened in write mode")
+	if entry.Mode == pb.FileMode(ReadMode){
+		return status.Error(codes.PermissionDenied, "file opened in read mode")
 	}
 	err := os.WriteFile(entry.LocalPath, data, 0644) // owner rw-, grp r--, other r--
 	if err != nil {
@@ -290,8 +301,31 @@ func (c *client) Write(ctx context.Context, filename string, data []byte) error 
 	return nil
 }
 
+// added append if client needs it
+func (c *client) Append(filename string, data []byte) error {
+    entry, ok := c.cache[filename]
+    if !ok {
+        return status.Error(codes.NotFound, "file not open")
+    }
+    if entry.Mode == pb.FileMode(ReadMode) {
+        return status.Error(codes.PermissionDenied, "file opened in read mode")
+    }
+    f, err := os.OpenFile(entry.LocalPath, os.O_APPEND|os.O_WRONLY, 0644)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+    _, err = f.Write(data)
+    if err != nil {
+        return err
+    }
+    entry.Dirty = true
+    touchLRU(c, filename)
+    return nil
+}
+
 // write the changes to the server but keep the file open
-func (c *client) Commit(filename string) error {
+func (c *client) Commit(ctx context.Context, filename string) error {
 	entry, ok := c.cache[filename]
 	if !ok {
 		return errors.New("file not in cache")
@@ -312,7 +346,7 @@ func (c *client) Commit(filename string) error {
 		Version:   entry.Version,
 		Data:      data,
 	}
-	resp, err := c.retryWrite(req)
+	resp, err := c.retryWrite(ctx, req)
 	if err != nil {
 		return err
 	}

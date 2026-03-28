@@ -54,7 +54,7 @@ func readLocalFile(path string, offset int64, size int64) ([]byte, error) {
 func writeLocalFile(path string, data []byte, offset int64) error {
 
 	// Open file (create if not exists)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644) // trunc in case old file longer than new one
 	if err != nil {
 		return err
 	}

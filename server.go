@@ -58,7 +58,6 @@ type server struct {
 	pb.UnimplementedFileServiceServer                          // the rpc interface
 	mu                                sync.Mutex               // if you modify server-wide maps or counters, must hold this
 	files                             map[int32]*FileMeta      // file descriptor is the index to this map, map holds metadata
-	handleToFD                        map[string]int32         // do we really need both file handles and file descriptors?
 	table                             map[string]*FileEntry    // handle to entry
 	nextFD                            int32                    // fd for next file opened or created, increment after assigning
 	requests                          map[string]*RequestEntry // handle to request?
@@ -165,26 +164,41 @@ func (s *server) cleanupRequests() {
 func (s *server) cleanupLeases() {
 	for {
 		time.Sleep(time.Minute)
-		s.mu.Lock() // because of the lock, is it too much overhead
+		var expired []struct { // needed to create a list of expired entries
+			fd       int32
+			entry *FileEntry
+			mode     FileMode
+			file     *os.File
+		}
+		s.mu.Lock() // will start collecting expired leases
 		for fd, meta := range s.files {
 			if time.Since(meta.lastSeen) > LeaseTimeout {
-				filename := meta.filename
-				mode := meta.mode
-				fileHandle := meta.file
+				entry := s.getFileEntry(meta.filename)
+				expired = append(expired, struct {
+					fd       int32
+					entry *FileEntry
+					mode     FileMode
+					file     *os.File
+				}{
+					fd:       fd,
+					entry: entry,
+					mode:     meta.mode,
+					file:     meta.file,
+				})
 				delete(s.files, fd)
-				s.mu.Unlock() // unlocking because getFileEntry will also want to acquire lock
-				entry := s.getFileEntry(filename)
-				if mode == ReadMode {
-					entry.ReleaseRead()
-				} else {
-					entry.ReleaseWrite()
-				}
-				fileHandle.Close()
-				s.mu.Lock()
-				fmt.Println("Lease expired FD:", fd)
 			}
 		}
-		s.mu.Unlock()
+		s.mu.Unlock()               // done collecting the leases
+		for _, e := range expired { // can safely release reads and writes now without acquiring lock
+			entry := e.entry
+			if e.mode == ReadMode {
+				entry.ReleaseRead()
+			} else {
+				entry.ReleaseWrite()
+			}
+			e.file.Close()
+			fmt.Println("lease expired FD:", e.fd)
+		}
 	}
 }
 
@@ -196,7 +210,6 @@ func (s *server) getFileEntry(name string) *FileEntry {
 	if !ok {
 		entry = NewFileEntry()
 		entry.version = 1
-		entry.cond = sync.NewCond(&entry.mu)
 		s.table[name] = entry
 	}
 	return entry
@@ -319,49 +332,29 @@ func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 	if err == nil && info.IsDir() {
 		return nil, status.Errorf(codes.InvalidArgument, "cannot delete directory")
 	}
-	entry := s.getFileEntry(safe)
-
-	entry.mu.Lock()
-
-	// Check if file is currently in use
-	if entry.activeReaders > 0 || entry.activeWriter {
-		entry.mu.Unlock()
-		return nil, status.Errorf(
-			codes.FailedPrecondition,
-			"file is currently in use by another client",
-		)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-
-	// lock as writer (without waiting)
-	// why? why not entry.AcquireWrite()?
-	entry.activeWriter = true
-
-	entry.mu.Unlock()
-
-	// Ensure release
-	defer func() {
-		entry.mu.Lock()
-		entry.activeWriter = false
-		entry.cond.Broadcast()
-		entry.mu.Unlock()
-	}()
-
-	// Delete file
+	entry := s.getFileEntry(safe)
+	if entry.activeReaders>0 || entry.activeWriter{
+		return nil, status.Error(codes.FailedPrecondition, "file currently in use")
+	}
+	entry.AcquireWrite()
+	defer entry.ReleaseWrite()
 	if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-
-	s.mu.Lock()
 	// Cleanup metadata
-	delete(s.table, safe)
-
+	s.mu.Lock()
+	if cur, ok := s.table[safe]; ok && cur == entry { // what if another file with same name was created right then
+		delete(s.table, safe)
+	}
 	resp := &pb.DeleteResponse{Message: "File is deleted"}
 	s.requests[req.RequestId] = &RequestEntry{
 		response:  resp,
 		timestamp: time.Now(),
 	}
 	s.mu.Unlock()
-
 	return resp, nil
 }
 
@@ -409,6 +402,9 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	// INPUT FILE (ONLY 1 READER)
 	// Need to change this
 	if strings.HasPrefix(safe, "input/") {
+		if mode != ReadMode {
+			return nil, status.Error(codes.PermissionDenied, "input files can only be read")
+		}
 		entry.AcquireReadNoPriority()
 
 		file, err := os.OpenFile(full, os.O_RDONLY, 0666)
@@ -555,13 +551,14 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 
 	filename := meta.filename
 	mode := meta.mode
+	meta.lastSeen = time.Now() ////////
 	s.mu.Unlock()
 
 	entry := s.getFileEntry(filename)
 
 	// Lock file entry for state validation
 	entry.mu.Lock()
-
+	
 	// Prevent invalid write
 	if req.Dirty && mode != WriteMode {
 		entry.mu.Unlock()
@@ -647,47 +644,40 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 
 // .tmp files are incomplete and present after crash this should be removed
 func (s *server) cleanupTempFiles() {
-	files, err := os.ReadDir(s.rootDir)
-	if err != nil {
-		return
-	}
-
 	now := time.Now()
-
-	for _, file := range files {
-		name := file.Name()
-
-		// Only .tmp files
-		if !strings.HasSuffix(name, ".tmp") {
-			continue
+	filepath.WalkDir(s.rootDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil { // err accessing path, skip
+			return nil
 		}
-
-		fullPath := filepath.Join(s.rootDir, name)
-		info, err := file.Info()
-		if err != nil {
-			continue
+		if d.IsDir() { // skip directories
+			return nil
 		}
-
-		// Skip recent files (avoid race with active writes)
-		if now.Sub(info.ModTime()) < 2*time.Minute {
-			continue
+		name := d.Name()
+		if !strings.HasSuffix(name, ".tmp") { // remove temp files only
+			return nil
 		}
-
-		// Extract original filename
-		original := strings.TrimSuffix(name, ".tmp") // why not safe, err := sanitizePath(original)
+		info, err := d.Info()
+		if err != nil { // some error in accessing info, skip
+			return nil
+		}
+		if now.Sub(info.ModTime()) < 2*time.Minute { // skip recent files, avoid race with active writers
+			return nil
+		}
+		relPath, err := filepath.Rel(s.rootDir, path) // path relative to root dir
+		if err != nil {                               // again, some error here, skip
+			return nil
+		}
+		original := strings.TrimSuffix(relPath, ".tmp") // get original filename
 		entry := s.getFileEntry(original)
-
 		entry.mu.Lock()
-		// Skip if file is currently in use
-		if entry.activeReaders > 0 || entry.activeWriter {
+		if entry.activeReaders > 0 || entry.activeWriter { // if file is currently in use, skip
 			entry.mu.Unlock()
-			continue
+			return nil
 		}
 		entry.mu.Unlock()
-
-		// Safe to delete
-		os.Remove(fullPath)
-	}
+		_ = os.Remove(path) // none of the above errors, can safely delete
+		return nil
+	})
 }
 
 // Call this function on server for .tmp files clean up
@@ -702,30 +692,25 @@ func (s *server) startTempFileGC() {
 	}()
 }
 
-// Server side read
+// never used plus has errors, skip
 func (s *server) Read(ctx context.Context, req *pb.ReadRequest) (*pb.ReadResponse, error) {
-
-	// Path sanitize
 	safe, err := sanitizePath(req.Filename)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid path")
 	}
-
-	full := filepath.Join(s.rootDir, safe)
-
-	// Open file
-	file, err := os.Open(full)
+	entry := s.getFileEntry(safe)
+	entry.AcquireRead() // to match with system semantics
+	defer entry.ReleaseRead()
+	full := filepath.Join(s.rootDir, safe) // creating absolute path
+	file, err := os.Open(full)             // opening file
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "file not found")
 	}
 	defer file.Close()
-
-	// Read full content
-	data, err := io.ReadAll(file)
+	data, err := io.ReadAll(file) // read entire file
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "read failed")
 	}
-
 	return &pb.ReadResponse{
 		Data:    data,
 		Message: "Read successful",
@@ -831,8 +816,11 @@ func (s *server) TestAuth(ctx context.Context, req *pb.TestAuthRequest) (*pb.Tes
 	safe, err := sanitizePath(req.Filename)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid path")
+	} // doesn't look at cache, doesn't need to, not a big overhead
+	entry, ok := s.table[safe]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "file not found")
 	}
-	entry := s.getFileEntry(safe)                      // getting entry for file with this name from server
 	entry.mu.Lock()                                    // acquire lock on file entry
 	version := entry.version                           // check version
 	entry.mu.Unlock()                                  // release lock
