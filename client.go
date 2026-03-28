@@ -20,9 +20,13 @@ import (
 )
 
 // no mutex for client since it is assumed that the client is single-threaded
-
-const ClientCacheDir = "./cache" // dir for client side caching
-const maxCacheEntries = 20       // store at most 20 files in cache, same cap on max open files
+const (
+	rpcTimeout      = 3 * time.Second        //
+	maxTries        = 3                      // if no response or certain errors, retry thrice at most
+	retryDelay      = 500 * time.Millisecond // time between two retries in such a case
+	ClientCacheDir  = "./cache"              // dir for client side caching
+	maxCacheEntries = 20                     // store at most 20 files in cache, same cap on max open files
+)
 
 type CacheEntry struct { // one entry in the cache
 	Filename  string // name of file, was given to server for request
@@ -83,6 +87,53 @@ func touchLRU(c *client, filename string) {
 	c.lru = append(c.lru, filename) // adding it to the end
 }
 
+// retry for write, used by both commit and close
+func (c *client) retryWrite(req *pb.WriteRequest) (*pb.WriteResponse, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
+		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout) // setting timeout
+		r, err := c.server.Write(ctx, req)                                   // try write
+		cancel()                                                             // removes timer and context resources
+		if err == nil {                                                      // successful write
+			return r, nil
+		}
+		lastErr = err
+		code := status.Code(err)
+		if code == codes.Unavailable || // only retrying in case of some transient error not logical error
+			code == codes.DeadlineExceeded { // again, handled on both client and server side
+			time.Sleep(retryDelay) // wait for a while, then retry
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
+// testAuth with retry logic
+func (c *client) testAuth(ctx context.Context, filename string) (*pb.TestAuthResponse, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
+		ctx, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
+		req := &pb.TestAuthRequest{
+			Filename: filename,
+		}
+		r, err := c.server.TestAuth(ctx, req) // try testauth
+		cancel()
+		if err == nil { // successful write
+			return r, nil
+		}
+		lastErr = err
+		code := status.Code(err)
+		if code == codes.Unavailable || // only retrying in case of some transient error not logical error
+			code == codes.DeadlineExceeded { // again, handled on both client and server side
+			time.Sleep(retryDelay) // wait for a while, then retry
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
 // send create request to server,
 func (c *client) Create(ctx context.Context, filename string, clientID string) (*CacheEntry, error) {
 	if len(c.cache) >= maxCacheEntries {
@@ -96,9 +147,27 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 		Filename:  filename,
 		ClientId:  clientID,
 	}
-	resp, err := c.server.Create(ctx, req)
-	if err != nil {
-		return nil, err
+	var lastErr error = nil // adding retry logic
+	var resp *pb.OpenResponse
+	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
+		ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout) // setting timeout
+		r, err := c.server.Create(ctx, req)                                  // try sending req
+		cancel()
+		if err == nil { // successful write
+			resp = r
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		code := status.Code(err)
+		if code == codes.Unavailable || // only retrying in case of some transient error not logical error
+			code == codes.DeadlineExceeded { // again, handled on both client and server side
+			time.Sleep(retryDelay) // wait for a while, then retry
+			continue
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	localPath := filepath.Join(ClientCacheDir, filename)
 	os.MkdirAll(filepath.Dir(localPath), 0755) // owner rwx, grp r-x, other r-x
@@ -106,7 +175,7 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 	if err != nil {
 		return nil, err
 	}
-	file.Close() // what??
+	file.Close() // closing file on os, does that mean will have to create and then open, not open by default on create?
 	entry := &CacheEntry{
 		Filename:  filename,
 		LocalPath: localPath,
@@ -116,7 +185,7 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 		Closed:    false,
 	}
 	c.cache[filename] = entry
-	c.lru = append(c.lru, filename)
+	touchLRU(c, filename)
 	return entry, nil
 }
 
@@ -127,10 +196,7 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		if entry.Dirty { // client has uncommitted writes
 			return entry, nil
 		}
-		ta_req := &pb.TestAuthRequest{
-			Filename: filename,
-		}
-		ta_resp, err := c.server.TestAuth(ctx, ta_req)
+		ta_resp, err := c.testAuth(ctx, filename)
 		if err != nil {
 			return nil, err
 		}
@@ -151,13 +217,31 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		Mode:      mode,
 		ClientId:  clientID,
 	}
-	resp, err := c.server.Open(ctx, req)
-	if err != nil {
-		return nil, err
+	var lastErr error = nil // adding retry logic
+	var resp *pb.OpenResponse
+	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
+		ctx, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
+		r, err := c.server.Open(ctx, req)                   // try sending req
+		cancel()
+		if err == nil { // successful write
+			resp = r
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		code := status.Code(err)
+		if code == codes.Unavailable || // only retrying in case of some transient error not logical error
+			code == codes.DeadlineExceeded { // again, handled on both client and server side
+			time.Sleep(retryDelay) // wait for a while, then retry
+			continue
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	localPath := filepath.Join(ClientCacheDir, filename)
-	os.MkdirAll(filepath.Dir(localPath), 0755)     // owner rwx, grp r-x, other r-x
-	err = os.WriteFile(localPath, resp.Data, 0644) // owner rw-, grp r--, other r--, don't need exec for this
+	os.MkdirAll(filepath.Dir(localPath), 0755)      // owner rwx, grp r-x, other r-x
+	err := os.WriteFile(localPath, resp.Data, 0644) // owner rw-, grp r--, other r--, don't need exec for this
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +254,7 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		Closed:    false,
 	}
 	c.cache[filename] = new_entry
-	c.lru = append(c.lru, filename)
+	touchLRU(c, filename)
 	return new_entry, nil
 }
 
@@ -206,6 +290,37 @@ func (c *client) Write(ctx context.Context, filename string, data []byte) error 
 	return nil
 }
 
+// write the changes to the server but keep the file open
+func (c *client) Commit(filename string) error {
+	entry, ok := c.cache[filename]
+	if !ok {
+		return errors.New("file not in cache")
+	}
+	if entry.Closed {
+		return errors.New("file is closed")
+	}
+	if !entry.Dirty { // no changes yet, no need to commit
+		return nil
+	}
+	data, err := os.ReadFile(entry.LocalPath)
+	if err != nil {
+		return err
+	}
+	req := &pb.WriteRequest{
+		RequestId: generateRequestID(),
+		Fd:        entry.Fd,
+		Version:   entry.Version,
+		Data:      data,
+	}
+	resp, err := c.retryWrite(req)
+	if err != nil {
+		return err
+	}
+	entry.Version = resp.Version
+	entry.Dirty = false
+	return nil
+}
+
 // close a file, write if dirty
 func (c *client) Close(ctx context.Context, filename string) error {
 	entry, ok := c.cache[filename]
@@ -231,9 +346,9 @@ func (c *client) Close(ctx context.Context, filename string) error {
 	if err != nil {
 		return err
 	}
-	entry.Version = resp.Version // this doesn't seem necessary
-	entry.Dirty = false          // neither does this
-	entry.Closed = true          // can be evicted from cache
+	entry.Version = resp.Version
+	entry.Dirty = false
+	entry.Closed = true // can be evicted from cache
 	entry.Fd = 0
 	touchLRU(c, filename)
 	return nil
