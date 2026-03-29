@@ -41,13 +41,13 @@ type FileServiceClient interface {
 	// Create new file (always write mode)
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*OpenResponse, error)
 	// Close file (commit changes if dirty)
-	Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*CloseResponse, error)
+	Close(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[CloseRequest, CloseResponse], error)
 	// Delete file
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	// Write file
-	Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error)
+	Write(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteRequest, WriteResponse], error)
 	// Read file
-	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error)
+	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadResponse], error)
 	// test if file in client cache is up to date
 	TestAuth(ctx context.Context, in *TestAuthRequest, opts ...grpc.CallOption) (*TestAuthResponse, error)
 }
@@ -80,15 +80,18 @@ func (c *fileServiceClient) Create(ctx context.Context, in *CreateRequest, opts 
 	return out, nil
 }
 
-func (c *fileServiceClient) Close(ctx context.Context, in *CloseRequest, opts ...grpc.CallOption) (*CloseResponse, error) {
+func (c *fileServiceClient) Close(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[CloseRequest, CloseResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CloseResponse)
-	err := c.cc.Invoke(ctx, FileService_Close_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FileService_ServiceDesc.Streams[0], FileService_Close_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[CloseRequest, CloseResponse]{ClientStream: stream}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileService_CloseClient = grpc.ClientStreamingClient[CloseRequest, CloseResponse]
 
 func (c *fileServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -100,25 +103,37 @@ func (c *fileServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts 
 	return out, nil
 }
 
-func (c *fileServiceClient) Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error) {
+func (c *fileServiceClient) Write(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteRequest, WriteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(WriteResponse)
-	err := c.cc.Invoke(ctx, FileService_Write_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FileService_ServiceDesc.Streams[1], FileService_Write_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[WriteRequest, WriteResponse]{ClientStream: stream}
+	return x, nil
 }
 
-func (c *fileServiceClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error) {
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileService_WriteClient = grpc.ClientStreamingClient[WriteRequest, WriteResponse]
+
+func (c *fileServiceClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ReadResponse)
-	err := c.cc.Invoke(ctx, FileService_Read_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FileService_ServiceDesc.Streams[2], FileService_Read_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[ReadRequest, ReadResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileService_ReadClient = grpc.ServerStreamingClient[ReadResponse]
 
 func (c *fileServiceClient) TestAuth(ctx context.Context, in *TestAuthRequest, opts ...grpc.CallOption) (*TestAuthResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -143,13 +158,13 @@ type FileServiceServer interface {
 	// Create new file (always write mode)
 	Create(context.Context, *CreateRequest) (*OpenResponse, error)
 	// Close file (commit changes if dirty)
-	Close(context.Context, *CloseRequest) (*CloseResponse, error)
+	Close(grpc.ClientStreamingServer[CloseRequest, CloseResponse]) error
 	// Delete file
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	// Write file
-	Write(context.Context, *WriteRequest) (*WriteResponse, error)
+	Write(grpc.ClientStreamingServer[WriteRequest, WriteResponse]) error
 	// Read file
-	Read(context.Context, *ReadRequest) (*ReadResponse, error)
+	Read(*ReadRequest, grpc.ServerStreamingServer[ReadResponse]) error
 	// test if file in client cache is up to date
 	TestAuth(context.Context, *TestAuthRequest) (*TestAuthResponse, error)
 	mustEmbedUnimplementedFileServiceServer()
@@ -168,17 +183,17 @@ func (UnimplementedFileServiceServer) Open(context.Context, *FileRequest) (*Open
 func (UnimplementedFileServiceServer) Create(context.Context, *CreateRequest) (*OpenResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
 }
-func (UnimplementedFileServiceServer) Close(context.Context, *CloseRequest) (*CloseResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Close not implemented")
+func (UnimplementedFileServiceServer) Close(grpc.ClientStreamingServer[CloseRequest, CloseResponse]) error {
+	return status.Error(codes.Unimplemented, "method Close not implemented")
 }
 func (UnimplementedFileServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
 }
-func (UnimplementedFileServiceServer) Write(context.Context, *WriteRequest) (*WriteResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Write not implemented")
+func (UnimplementedFileServiceServer) Write(grpc.ClientStreamingServer[WriteRequest, WriteResponse]) error {
+	return status.Error(codes.Unimplemented, "method Write not implemented")
 }
-func (UnimplementedFileServiceServer) Read(context.Context, *ReadRequest) (*ReadResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Read not implemented")
+func (UnimplementedFileServiceServer) Read(*ReadRequest, grpc.ServerStreamingServer[ReadResponse]) error {
+	return status.Error(codes.Unimplemented, "method Read not implemented")
 }
 func (UnimplementedFileServiceServer) TestAuth(context.Context, *TestAuthRequest) (*TestAuthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TestAuth not implemented")
@@ -240,23 +255,12 @@ func _FileService_Create_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_Close_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CloseRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileServiceServer).Close(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FileService_Close_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).Close(ctx, req.(*CloseRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _FileService_Close_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(FileServiceServer).Close(&grpc.GenericServerStream[CloseRequest, CloseResponse]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileService_CloseServer = grpc.ClientStreamingServer[CloseRequest, CloseResponse]
 
 func _FileService_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteRequest)
@@ -276,41 +280,23 @@ func _FileService_Delete_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_Write_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(WriteRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileServiceServer).Write(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FileService_Write_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).Write(ctx, req.(*WriteRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _FileService_Write_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(FileServiceServer).Write(&grpc.GenericServerStream[WriteRequest, WriteResponse]{ServerStream: stream})
 }
 
-func _FileService_Read_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReadRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileService_WriteServer = grpc.ClientStreamingServer[WriteRequest, WriteResponse]
+
+func _FileService_Read_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReadRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(FileServiceServer).Read(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FileService_Read_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).Read(ctx, req.(*ReadRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(FileServiceServer).Read(m, &grpc.GenericServerStream[ReadRequest, ReadResponse]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type FileService_ReadServer = grpc.ServerStreamingServer[ReadResponse]
 
 func _FileService_TestAuth_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestAuthRequest)
@@ -346,26 +332,30 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FileService_Create_Handler,
 		},
 		{
-			MethodName: "Close",
-			Handler:    _FileService_Close_Handler,
-		},
-		{
 			MethodName: "Delete",
 			Handler:    _FileService_Delete_Handler,
-		},
-		{
-			MethodName: "Write",
-			Handler:    _FileService_Write_Handler,
-		},
-		{
-			MethodName: "Read",
-			Handler:    _FileService_Read_Handler,
 		},
 		{
 			MethodName: "TestAuth",
 			Handler:    _FileService_TestAuth_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Close",
+			Handler:       _FileService_Close_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "Write",
+			Handler:       _FileService_Write_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "Read",
+			Handler:       _FileService_Read_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/fs.proto",
 }

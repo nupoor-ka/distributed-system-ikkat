@@ -70,15 +70,12 @@ func (FileMode) EnumDescriptor() ([]byte, []int) {
 	return file_proto_fs_proto_rawDescGZIP(), []int{0}
 }
 
-// =========================
-// REQUESTS
-// =========================
 type FileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Filename      string                 `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
 	Mode          FileMode               `protobuf:"varint,3,opt,name=mode,proto3,enum=filesystem.FileMode" json:"mode,omitempty"`
-	ClientId      string                 `protobuf:"bytes,4,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	ClientId      string                 `protobuf:"bytes,4,opt,name=clientId,proto3" json:"clientId,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -145,7 +142,8 @@ type CreateRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Filename      string                 `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
-	ClientId      string                 `protobuf:"bytes,3,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	ClientId      string                 `protobuf:"bytes,3,opt,name=clientId,proto3" json:"clientId,omitempty"`
+	Mode          FileMode               `protobuf:"varint,4,opt,name=mode,proto3,enum=filesystem.FileMode" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -199,6 +197,13 @@ func (x *CreateRequest) GetClientId() string {
 		return x.ClientId
 	}
 	return ""
+}
+
+func (x *CreateRequest) GetMode() FileMode {
+	if x != nil {
+		return x.Mode
+	}
+	return FileMode_READ
 }
 
 type DeleteRequest struct {
@@ -329,63 +334,20 @@ func (x *CloseRequest) GetData() []byte {
 	return nil
 }
 
-type ReadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ReadRequest) Reset() {
-	*x = ReadRequest{}
-	mi := &file_proto_fs_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ReadRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReadRequest) ProtoMessage() {}
-
-func (x *ReadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReadRequest.ProtoReflect.Descriptor instead.
-func (*ReadRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ReadRequest) GetFilename() string {
-	if x != nil {
-		return x.Filename
-	}
-	return ""
-}
-
 type WriteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Fd            int32                  `protobuf:"varint,2,opt,name=fd,proto3" json:"fd,omitempty"`
-	Version       int32                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	Dirty         bool                   `protobuf:"varint,3,opt,name=dirty,proto3" json:"dirty,omitempty"`
+	Version       int32                  `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"`
+	Data          []byte                 `protobuf:"bytes,5,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *WriteRequest) Reset() {
 	*x = WriteRequest{}
-	mi := &file_proto_fs_proto_msgTypes[5]
+	mi := &file_proto_fs_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -397,7 +359,7 @@ func (x *WriteRequest) String() string {
 func (*WriteRequest) ProtoMessage() {}
 
 func (x *WriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[5]
+	mi := &file_proto_fs_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -410,7 +372,7 @@ func (x *WriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteRequest.ProtoReflect.Descriptor instead.
 func (*WriteRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{5}
+	return file_proto_fs_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WriteRequest) GetRequestId() string {
@@ -427,6 +389,13 @@ func (x *WriteRequest) GetFd() int32 {
 	return 0
 }
 
+func (x *WriteRequest) GetDirty() bool {
+	if x != nil {
+		return x.Dirty
+	}
+	return false
+}
+
 func (x *WriteRequest) GetVersion() int32 {
 	if x != nil {
 		return x.Version
@@ -439,6 +408,50 @@ func (x *WriteRequest) GetData() []byte {
 		return x.Data
 	}
 	return nil
+}
+
+type ReadRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadRequest) Reset() {
+	*x = ReadRequest{}
+	mi := &file_proto_fs_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadRequest) ProtoMessage() {}
+
+func (x *ReadRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_fs_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadRequest.ProtoReflect.Descriptor instead.
+func (*ReadRequest) Descriptor() ([]byte, []int) {
+	return file_proto_fs_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ReadRequest) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
 }
 
 type TestAuthRequest struct {
@@ -493,7 +506,6 @@ type OpenResponse struct {
 	Fd            int32                  `protobuf:"varint,1,opt,name=fd,proto3" json:"fd,omitempty"`
 	Version       int32                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -547,13 +559,6 @@ func (x *OpenResponse) GetMessage() string {
 		return x.Message
 	}
 	return ""
-}
-
-func (x *OpenResponse) GetData() []byte {
-	if x != nil {
-		return x.Data
-	}
-	return nil
 }
 
 type CloseResponse struct {
@@ -707,7 +712,6 @@ func (x *WriteResponse) GetVersion() int32 {
 type ReadResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -747,13 +751,6 @@ func (x *ReadResponse) GetData() []byte {
 		return x.Data
 	}
 	return nil
-}
-
-func (x *ReadResponse) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
 }
 
 type TestAuthResponse struct {
@@ -805,18 +802,19 @@ var File_proto_fs_proto protoreflect.FileDescriptor
 const file_proto_fs_proto_rawDesc = "" +
 	"\n" +
 	"\x0eproto/fs.proto\x12\n" +
-	"filesystem\"\x8f\x01\n" +
+	"filesystem\"\x8e\x01\n" +
 	"\vFileRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1a\n" +
 	"\bfilename\x18\x02 \x01(\tR\bfilename\x12(\n" +
-	"\x04mode\x18\x03 \x01(\x0e2\x14.filesystem.FileModeR\x04mode\x12\x1b\n" +
-	"\tclient_id\x18\x04 \x01(\tR\bclientId\"g\n" +
+	"\x04mode\x18\x03 \x01(\x0e2\x14.filesystem.FileModeR\x04mode\x12\x1a\n" +
+	"\bclientId\x18\x04 \x01(\tR\bclientId\"\x90\x01\n" +
 	"\rCreateRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1a\n" +
-	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x1b\n" +
-	"\tclient_id\x18\x03 \x01(\tR\bclientId\"J\n" +
+	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x1a\n" +
+	"\bclientId\x18\x03 \x01(\tR\bclientId\x12(\n" +
+	"\x04mode\x18\x04 \x01(\x0e2\x14.filesystem.FileModeR\x04mode\"J\n" +
 	"\rDeleteRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1a\n" +
@@ -827,22 +825,22 @@ const file_proto_fs_proto_rawDesc = "" +
 	"\x02fd\x18\x02 \x01(\x05R\x02fd\x12\x14\n" +
 	"\x05dirty\x18\x03 \x01(\bR\x05dirty\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\x05R\aversion\x12\x12\n" +
-	"\x04data\x18\x05 \x01(\fR\x04data\")\n" +
-	"\vReadRequest\x12\x1a\n" +
-	"\bfilename\x18\x01 \x01(\tR\bfilename\"k\n" +
+	"\x04data\x18\x05 \x01(\fR\x04data\"\x81\x01\n" +
 	"\fWriteRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
-	"\x02fd\x18\x02 \x01(\x05R\x02fd\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\x05R\aversion\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"-\n" +
+	"\x02fd\x18\x02 \x01(\x05R\x02fd\x12\x14\n" +
+	"\x05dirty\x18\x03 \x01(\bR\x05dirty\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\x05R\aversion\x12\x12\n" +
+	"\x04data\x18\x05 \x01(\fR\x04data\")\n" +
+	"\vReadRequest\x12\x1a\n" +
+	"\bfilename\x18\x01 \x01(\tR\bfilename\"-\n" +
 	"\x0fTestAuthRequest\x12\x1a\n" +
-	"\bfilename\x18\x01 \x01(\tR\bfilename\"f\n" +
+	"\bfilename\x18\x01 \x01(\tR\bfilename\"R\n" +
 	"\fOpenResponse\x12\x0e\n" +
 	"\x02fd\x18\x01 \x01(\x05R\x02fd\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x05R\aversion\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"C\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"C\n" +
 	"\rCloseResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x05R\aversion\"*\n" +
@@ -850,22 +848,21 @@ const file_proto_fs_proto_rawDesc = "" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"C\n" +
 	"\rWriteResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\x05R\aversion\"<\n" +
+	"\aversion\x18\x02 \x01(\x05R\aversion\"\"\n" +
 	"\fReadResponse\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\",\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\",\n" +
 	"\x10TestAuthResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x05R\aversion*\x1f\n" +
 	"\bFileMode\x12\b\n" +
 	"\x04READ\x10\x00\x12\t\n" +
-	"\x05WRITE\x10\x012\xc6\x03\n" +
+	"\x05WRITE\x10\x012\xcc\x03\n" +
 	"\vFileService\x129\n" +
 	"\x04Open\x12\x17.filesystem.FileRequest\x1a\x18.filesystem.OpenResponse\x12=\n" +
-	"\x06Create\x12\x19.filesystem.CreateRequest\x1a\x18.filesystem.OpenResponse\x12<\n" +
-	"\x05Close\x12\x18.filesystem.CloseRequest\x1a\x19.filesystem.CloseResponse\x12?\n" +
-	"\x06Delete\x12\x19.filesystem.DeleteRequest\x1a\x1a.filesystem.DeleteResponse\x12<\n" +
-	"\x05Write\x12\x18.filesystem.WriteRequest\x1a\x19.filesystem.WriteResponse\x129\n" +
-	"\x04Read\x12\x17.filesystem.ReadRequest\x1a\x18.filesystem.ReadResponse\x12E\n" +
+	"\x06Create\x12\x19.filesystem.CreateRequest\x1a\x18.filesystem.OpenResponse\x12>\n" +
+	"\x05Close\x12\x18.filesystem.CloseRequest\x1a\x19.filesystem.CloseResponse(\x01\x12?\n" +
+	"\x06Delete\x12\x19.filesystem.DeleteRequest\x1a\x1a.filesystem.DeleteResponse\x12>\n" +
+	"\x05Write\x12\x18.filesystem.WriteRequest\x1a\x19.filesystem.WriteResponse(\x01\x12;\n" +
+	"\x04Read\x12\x17.filesystem.ReadRequest\x1a\x18.filesystem.ReadResponse0\x01\x12E\n" +
 	"\bTestAuth\x12\x1b.filesystem.TestAuthRequest\x1a\x1c.filesystem.TestAuthResponseB\rZ\v/filesystemb\x06proto3"
 
 var (
@@ -888,8 +885,8 @@ var file_proto_fs_proto_goTypes = []any{
 	(*CreateRequest)(nil),    // 2: filesystem.CreateRequest
 	(*DeleteRequest)(nil),    // 3: filesystem.DeleteRequest
 	(*CloseRequest)(nil),     // 4: filesystem.CloseRequest
-	(*ReadRequest)(nil),      // 5: filesystem.ReadRequest
-	(*WriteRequest)(nil),     // 6: filesystem.WriteRequest
+	(*WriteRequest)(nil),     // 5: filesystem.WriteRequest
+	(*ReadRequest)(nil),      // 6: filesystem.ReadRequest
 	(*TestAuthRequest)(nil),  // 7: filesystem.TestAuthRequest
 	(*OpenResponse)(nil),     // 8: filesystem.OpenResponse
 	(*CloseResponse)(nil),    // 9: filesystem.CloseResponse
@@ -900,25 +897,26 @@ var file_proto_fs_proto_goTypes = []any{
 }
 var file_proto_fs_proto_depIdxs = []int32{
 	0,  // 0: filesystem.FileRequest.mode:type_name -> filesystem.FileMode
-	1,  // 1: filesystem.FileService.Open:input_type -> filesystem.FileRequest
-	2,  // 2: filesystem.FileService.Create:input_type -> filesystem.CreateRequest
-	4,  // 3: filesystem.FileService.Close:input_type -> filesystem.CloseRequest
-	3,  // 4: filesystem.FileService.Delete:input_type -> filesystem.DeleteRequest
-	6,  // 5: filesystem.FileService.Write:input_type -> filesystem.WriteRequest
-	5,  // 6: filesystem.FileService.Read:input_type -> filesystem.ReadRequest
-	7,  // 7: filesystem.FileService.TestAuth:input_type -> filesystem.TestAuthRequest
-	8,  // 8: filesystem.FileService.Open:output_type -> filesystem.OpenResponse
-	8,  // 9: filesystem.FileService.Create:output_type -> filesystem.OpenResponse
-	9,  // 10: filesystem.FileService.Close:output_type -> filesystem.CloseResponse
-	10, // 11: filesystem.FileService.Delete:output_type -> filesystem.DeleteResponse
-	11, // 12: filesystem.FileService.Write:output_type -> filesystem.WriteResponse
-	12, // 13: filesystem.FileService.Read:output_type -> filesystem.ReadResponse
-	13, // 14: filesystem.FileService.TestAuth:output_type -> filesystem.TestAuthResponse
-	8,  // [8:15] is the sub-list for method output_type
-	1,  // [1:8] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	0,  // 1: filesystem.CreateRequest.mode:type_name -> filesystem.FileMode
+	1,  // 2: filesystem.FileService.Open:input_type -> filesystem.FileRequest
+	2,  // 3: filesystem.FileService.Create:input_type -> filesystem.CreateRequest
+	4,  // 4: filesystem.FileService.Close:input_type -> filesystem.CloseRequest
+	3,  // 5: filesystem.FileService.Delete:input_type -> filesystem.DeleteRequest
+	5,  // 6: filesystem.FileService.Write:input_type -> filesystem.WriteRequest
+	6,  // 7: filesystem.FileService.Read:input_type -> filesystem.ReadRequest
+	7,  // 8: filesystem.FileService.TestAuth:input_type -> filesystem.TestAuthRequest
+	8,  // 9: filesystem.FileService.Open:output_type -> filesystem.OpenResponse
+	8,  // 10: filesystem.FileService.Create:output_type -> filesystem.OpenResponse
+	9,  // 11: filesystem.FileService.Close:output_type -> filesystem.CloseResponse
+	10, // 12: filesystem.FileService.Delete:output_type -> filesystem.DeleteResponse
+	11, // 13: filesystem.FileService.Write:output_type -> filesystem.WriteResponse
+	12, // 14: filesystem.FileService.Read:output_type -> filesystem.ReadResponse
+	13, // 15: filesystem.FileService.TestAuth:output_type -> filesystem.TestAuthResponse
+	9,  // [9:16] is the sub-list for method output_type
+	2,  // [2:9] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_proto_fs_proto_init() }
