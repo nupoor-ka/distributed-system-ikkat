@@ -49,7 +49,7 @@ type client struct {
 }
 
 // intiaiting a new client, given the title of the server from the get-go
-func newClient(server pb.FileServiceClient) *client { // initiating a client
+func NewClient(server pb.FileServiceClient) *client { // initiating a client
 	os.MkdirAll(ClientCacheDir, 0755) // owner rwx, grp r-x, other r-x
 	c := &client{
 		cache:  make(map[string]*CacheEntry),
