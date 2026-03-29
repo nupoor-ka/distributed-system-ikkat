@@ -4,6 +4,7 @@ import (
 	// "context"
 	"fmt"
 	"io"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,3 +75,79 @@ func writeLocalFile(path string, data []byte, offset int64) error {
 
 	return nil
 }
+
+// Checking Prime Number using
+// fast modular exponentiation: (base^exp) % mod
+func modExp(base, exp, mod uint64) uint64 {
+	result := uint64(1)
+	base = base % mod
+
+	for exp > 0 {
+		if exp&1 == 1 {
+			result = mulMod(result, base, mod)
+		}
+		base = mulMod(base, base, mod)
+		exp >>= 1
+	}
+	return result
+}
+
+func mulMod(a, b, mod uint64) uint64 {
+	hi, lo := bits.Mul64(a, b)
+	_, rem := bits.Div64(hi, lo, mod)
+	return rem
+}
+
+// Miller-Rabin test for one base
+func check(a, d, n uint64, r int) bool {
+	x := modExp(a, d, n)
+
+	if x == 1 || x == n-1 {
+		return true
+	}
+
+	for i := 0; i < r-1; i++ {
+		x = mulMod(x, x, n)
+		if x == n-1 {
+			return true
+		}
+	}
+	return false
+}
+
+// Deterministic Miller-Rabin for 64-bit integers
+func isPrime(n uint64) bool {
+	if n < 2 {
+		return false
+	}
+
+	// small primes check
+	smallPrimes := []uint64{2, 3, 5, 7, 11, 13, 17}
+	for _, p := range smallPrimes {
+		if n%p == 0 {
+			return n == p
+		}
+	}
+
+	// write n-1 = d * 2^r
+	d := n - 1
+	r := 0
+	for d%2 == 0 {
+		d /= 2
+		r++
+	}
+
+	// test bases
+	for _, a := range smallPrimes {
+		if a >= n {
+			continue
+		}
+		if !check(a, d, n, r) {
+			return false
+		}
+	}
+
+	return true
+}
+
+//nums := []uint64{10, 11, 13, 15, 17, 19, 20}
