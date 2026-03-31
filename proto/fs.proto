@@ -53,6 +53,7 @@ message WriteRequest {
 
 message ReadRequest {
     string filename  = 1;
+    int32 fd = 2;
 }
 
 message TestAuthRequest {
