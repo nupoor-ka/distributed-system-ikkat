@@ -19,11 +19,12 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-// File Meta is same for all server.
+// File Meta is same for all server
 // primeSet is local cache of each server
 
 type Replication struct {
@@ -71,52 +72,43 @@ type server1 struct {
 	id        string
 	role      Role
 	primaryID string
-
 	// cluster info
 	servers map[string]ServerInfo
-
 	// file system (runtime)
 	files  map[int32]*FileMeta
 	table  map[string]*FileEntry
 	nextFD int32
-
 	// request cache (idempotency)
 	requests map[string]*RequestEntry
-
 	// lookup
 	openMap map[FileKey]int32
-
 	rootDir string
-
-	// ---------------- REPLICATION ----------------
+	// replication
 	log         []LogEntry
 	commitIndex int
 	lastApplied int
-
-	// ---------------- FAILURE DETECTION ----------------
+	// failure detection
 	lastHeartbeat time.Time
-
-	// ---------------- PERSISTENCE ----------------
+	// persistence
 	logFilePath string
 }
 
 // for recovery only
-// UpdateMessage is used for recovery and synchronization of out-of-date replicas, while normal replication is handled using log-based AppendEntries with majority acknowledgment.
+// UpdateMessage is used for recovery and synchronization of out-of-date replicas, while normal replication is handled using log-based AppendEntries with majority acknowledgment
 type UpdateMessage struct {
 	IsFullSync bool
-
 	LogEntries []LogEntry    // incremental sync
 	FullFiles  []Replication // full snapshot
 }
 
 // Leader StartHeartbeat()
-// → every 2 sec
-// → send heartbeat to all followers
+// -> every 2 sec
+// -> send heartbeat to all followers
 // Follower Receive heartbeat
-// → update lastHeartbeat
+// -> update lastHeartbeat
 // Failure
 // Receive heartbeat
-// → update lastHeartbeat
+// -> update lastHeartbeat
 // Periodic Heartbeat message to backup server by leader
 
 // Folower side
@@ -178,10 +170,10 @@ func (s *server1) sendHeartbeat(peer ServerInfo) {
 		return
 	}
 
-	//  If rejected → step down
+	//  If rejected step down
 	// Leader must step down if follower rejects
 	if !resp.Success {
-		fmt.Println("Another leader exists → stepping down")
+		fmt.Println("Another leader exists, stepping down")
 
 		s.mu.Lock()
 		s.role = Backup
@@ -220,7 +212,7 @@ func (s *server1) MonitorPrimary() {
 
 		s.mu.Lock()
 
-		// If I am leader → skip
+		// If I am leader -> skip
 		if s.id == s.primaryID {
 			s.mu.Unlock()
 			continue
@@ -229,7 +221,7 @@ func (s *server1) MonitorPrimary() {
 		// Check timeout
 		if time.Since(s.lastHeartbeat) > 5*time.Second {
 
-			fmt.Println("Primary failed → electing new leader")
+			fmt.Println("Primary failed -> electing new leader")
 
 			oldLeader := s.primaryID
 
@@ -279,12 +271,12 @@ func (s *server1) CheckPrimaryAlive() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If I am leader → nothing to do
+	// If I am leader -> nothing to do
 	if s.id == s.primaryID {
 		return
 	}
 
-	// If heartbeat still fresh → leader alive
+	// If heartbeat still fresh -> leader alive
 	if time.Since(s.lastHeartbeat) <= 5*time.Second {
 		return
 	}
@@ -525,11 +517,11 @@ func (s *server1) ApplyUpdate(msg *pb.UpdateMessage) error {
 }
 
 // Called when leader sends a log entry
-// Leader → Follower: "store this operation"
+// Leader -> Follower: "store this operation"
 // Follower: appends to log persists waits for commit
-// AppendEntry → append + persist ONLY
-// Apply → only after commit
-// Recovery → separate flow
+// AppendEntry -> append + persist ONLY
+// Apply -> only after commit
+// Recovery -> separate flow
 func (s *server1) AppendEntries(
 	ctx context.Context,
 	req *pb.AppendEntriesRequest,
@@ -598,8 +590,7 @@ func (s *server1) applyCommitted() {
 }
 
 func sendAppendEntry(selfID string, peer ServerInfo, entry LogEntry, commitIndex int) bool {
-
-	conn, err := grpc.Dial(peer.Address, grpc.WithInsecure())
+	conn, err := grpc.NewClient(peer.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return false
 	}
@@ -608,7 +599,7 @@ func sendAppendEntry(selfID string, peer ServerInfo, entry LogEntry, commitIndex
 	client := pb.NewReplicationServiceClient(conn)
 
 	req := &pb.AppendEntriesRequest{
-		LeaderId:     selfID, // ✅ FIXED
+		LeaderId:     selfID, // FIXED
 		LeaderCommit: int32(commitIndex),
 		Entries: []*pb.LogEntry{
 			{
@@ -645,10 +636,10 @@ func (s *server1) HandleWrite(req WriteRequest) error {
 
 	entry := LogEntry{
 		Index:    len(s.log) + 1,
-		Op:       "WRITE", // ✅ FIXED
+		Op:       "WRITE", //  FIXED
 		Filename: req.Filename,
 		Content:  req.Data,
-		Version:  meta.version + 1, // ✅ FIXED
+		Version:  meta.version + 1, //  FIXED
 	}
 
 	s.log = append(s.log, entry)
@@ -663,7 +654,7 @@ func (s *server1) HandleWrite(req WriteRequest) error {
 
 	// -------- Replication --------
 	ackCount := 1
-	commitIndex := entry.Index // ✅ FIXED (no race)
+	commitIndex := entry.Index //  FIXED (no race)
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -701,10 +692,10 @@ func (s *server1) HandleWrite(req WriteRequest) error {
 	return fmt.Errorf("failed to reach majority")
 }
 
-// Crash → restart → empty memory
-// Follower → RequestRecovery()
-// Leader → sends FullFiles
-// Follower → ApplyUpdate()
+// Crash -> restart -> empty memory
+// Follower -> RequestRecovery()
+// Leader -> sends FullFiles
+// Follower -> ApplyUpdate()
 // After that Normal AppendEntries resumes
 func (s *server1) RequestRecovery(
 	ctx context.Context,
@@ -720,7 +711,7 @@ func (s *server1) RequestRecovery(
 
 	var files []*pb.Replication
 
-	for filename, entry := range s.table { // ✅ FIXED
+	for filename, entry := range s.table { // FIXED
 
 		full := filepath.Join(s.rootDir, filename)
 
@@ -809,7 +800,7 @@ func main() {
 	// ----------- 3. Initialize server -----------
 	s := &server1{
 		id:          *id,
-		role:        Backup, // ✅ use enum
+		role:        Backup, // use enum
 		primaryID:   "",
 		servers:     make(map[string]ServerInfo),
 		files:       make(map[int32]*FileMeta),
@@ -820,7 +811,7 @@ func main() {
 		logFilePath: logFile,
 	}
 
-	s.Init() // ✅ important
+	s.Init() //  important
 
 	// ----------- 4. Load cluster config -----------
 	s.servers = map[string]ServerInfo{
@@ -858,7 +849,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 
-	// ✅ MUST register all services
+	//  MUST register all services
 	pb.RegisterReplicationServiceServer(grpcServer, s)
 	pb.RegisterHeartbeatServiceServer(grpcServer, s)
 	pb.RegisterRecoveryServiceServer(grpcServer, s)
@@ -893,14 +884,14 @@ func main() {
 	}
 }
 
-// Client → Leader
-// → append log
-// → send AppendEntries
-// → wait majority ACK
-// → commitIndex update
-// → apply locally
-// → followers apply via LeaderCommit
-// //Wriite Updated
+// Client -> Leader
+// -> append log
+// -> send AppendEntries
+// -> wait majority ACK
+// -> commitIndex update
+// -> apply locally
+// -> followers apply via LeaderCommit
+// //Write Updated
 func (s *server1) Write_Rep(stream pb.FileService_WriteServer) error {
 
 	var meta *FileMeta
@@ -1004,7 +995,7 @@ func (s *server1) Write_Rep(stream pb.FileService_WriteServer) error {
 			meta.mu.Unlock()
 
 			// ======================
-			// ONLY IF DIRTY → WRITE FLOW
+			// ONLY IF DIRTY -> WRITE FLOW
 			// ======================
 			if dirty {
 
@@ -1107,7 +1098,7 @@ func (s *server1) Write_Rep(stream pb.FileService_WriteServer) error {
 		}
 
 		data := buffer.Bytes()
-		// Commit tempPrimeSet → meta.primeSet
+		// Commit tempPrimeSet -> meta.primeSet
 		meta.mu.Lock()
 		meta.primeSet = tempPrimeSet
 		meta.mu.Unlock()
@@ -1178,7 +1169,7 @@ func (s *server1) Write_Rep(stream pb.FileService_WriteServer) error {
 		entry.ReleaseWrite()
 
 	} else {
-		// No write → just return current version
+		// No write -> just return current version
 		entry.mu.Lock()
 		newVersion = entry.version
 		entry.mu.Unlock()
@@ -1287,7 +1278,7 @@ func (s *server1) Close_Rep(stream pb.FileService_CloseServer) error {
 			entry = s.getFileEntry(filename)
 
 			// ======================
-			// ONLY IF DIRTY → WRITE FLOW
+			// ONLY IF DIRTY -> WRITE FLOW
 			// ======================
 			if dirty {
 
@@ -1378,7 +1369,7 @@ func (s *server1) Close_Rep(stream pb.FileService_CloseServer) error {
 		}
 
 		data := buffer.Bytes()
-		// Commit tempPrimeSet → meta.primeSet
+		// Commit tempPrimeSet -> meta.primeSet
 		meta.mu.Lock()
 		meta.primeSet = tempPrimeSet
 		meta.mu.Unlock()
@@ -1453,7 +1444,7 @@ func (s *server1) Close_Rep(stream pb.FileService_CloseServer) error {
 			entry.mu.Unlock()
 		}
 	} else {
-		// No write → just return version
+		// No write -> just return version
 		entry.mu.Lock()
 		newVersion = entry.version
 		entry.mu.Unlock()

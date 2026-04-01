@@ -22,13 +22,13 @@ func StartServer(s *server, port string) error {
 
 // connecting client, hides grpc part from user
 func DialClient(address string) (*client, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials())) // set up client connection, given address of server, no need of credentials
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not connect to %s: %v", address, err)
 	}
-	grpcClient := pb.NewFileServiceClient(conn)
-	customClient := NewClient(grpcClient)
-	return customClient, conn, nil
+	grpcClient := pb.NewFileServiceClient(conn) // FileServiceClient as defined using proto
+	customClient := NewClient(grpcClient) // custom fs NewClient function, gives client struct
+	return customClient, conn, nil // return *client, *grpc.ClientConn, error
 }
 
 // usage for start server

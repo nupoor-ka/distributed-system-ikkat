@@ -1,18 +1,12 @@
 package main
 
 import (
-	// "context"
 	"fmt"
 	"io"
 	"math/bits"
 	"os"
 	"path/filepath"
 	"strings"
-	// "sync"
-	// "time"
-	// pb "distributed-system-ikkat/filesystem"
-	// "google.golang.org/grpc/codes"
-	// "google.golang.org/grpc/status"
 )
 
 type FileMode int
@@ -22,6 +16,8 @@ const (
 	WriteMode
 	ReadWriteMode
 )
+
+const ChunkSize = 64 * 1024 // 64 KB chunk size for both client and server side streaming
 
 func sanitizePath(p string) (string, error) {
 	safe := filepath.Clean(p)
@@ -52,36 +48,27 @@ func readLocalFile(path string, offset int64, size int64) ([]byte, error) {
 }
 
 // Function to write local cache file by client
-func writeLocalFile(path string, data []byte, offset int64) error {
-
-	// Open file (create if not exists)
+func writeLocalFile(path string, data []byte, offset int64) error { // Open file (create if not exists)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644) // trunc in case old file longer than new one
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	// Move to offset
+	defer f.Close() // Move to offset
 	_, err = f.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
-
-	// Write data at offset
-	_, err = f.Write(data)
+	_, err = f.Write(data) // Write data at offset
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// Checking Prime Number using
-// fast modular exponentiation: (base^exp) % mod
+// Checking primes using fast modular exponentiation: (base^exp) % mod
 func modExp(base, exp, mod uint64) uint64 {
 	result := uint64(1)
 	base = base % mod
-
 	for exp > 0 {
 		if exp&1 == 1 {
 			result = mulMod(result, base, mod)
@@ -92,6 +79,7 @@ func modExp(base, exp, mod uint64) uint64 {
 	return result
 }
 
+// 
 func mulMod(a, b, mod uint64) uint64 {
 	hi, lo := bits.Mul64(a, b)
 	_, rem := bits.Div64(hi, lo, mod)
@@ -101,11 +89,9 @@ func mulMod(a, b, mod uint64) uint64 {
 // Miller-Rabin test for one base
 func check(a, d, n uint64, r int) bool {
 	x := modExp(a, d, n)
-
 	if x == 1 || x == n-1 {
 		return true
 	}
-
 	for i := 0; i < r-1; i++ {
 		x = mulMod(x, x, n)
 		if x == n-1 {
@@ -120,7 +106,6 @@ func isPrime(n uint64) bool {
 	if n < 2 {
 		return false
 	}
-
 	// small primes check
 	smallPrimes := []uint64{2, 3, 5, 7, 11, 13, 17}
 	for _, p := range smallPrimes {
@@ -128,7 +113,6 @@ func isPrime(n uint64) bool {
 			return n == p
 		}
 	}
-
 	// write n-1 = d * 2^r
 	d := n - 1
 	r := 0
@@ -136,7 +120,6 @@ func isPrime(n uint64) bool {
 		d /= 2
 		r++
 	}
-
 	// test bases
 	for _, a := range smallPrimes {
 		if a >= n {
@@ -146,7 +129,6 @@ func isPrime(n uint64) bool {
 			return false
 		}
 	}
-
 	return true
 }
 

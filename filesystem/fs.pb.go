@@ -413,6 +413,7 @@ func (x *WriteRequest) GetData() []byte {
 type ReadRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
+	Fd            int32                  `protobuf:"varint,2,opt,name=fd,proto3" json:"fd,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -452,6 +453,13 @@ func (x *ReadRequest) GetFilename() string {
 		return x.Filename
 	}
 	return ""
+}
+
+func (x *ReadRequest) GetFd() int32 {
+	if x != nil {
+		return x.Fd
+	}
+	return 0
 }
 
 type TestAuthRequest struct {
@@ -832,9 +840,10 @@ const file_proto_fs_proto_rawDesc = "" +
 	"\x02fd\x18\x02 \x01(\x05R\x02fd\x12\x14\n" +
 	"\x05dirty\x18\x03 \x01(\bR\x05dirty\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\x05R\aversion\x12\x12\n" +
-	"\x04data\x18\x05 \x01(\fR\x04data\")\n" +
+	"\x04data\x18\x05 \x01(\fR\x04data\"9\n" +
 	"\vReadRequest\x12\x1a\n" +
-	"\bfilename\x18\x01 \x01(\tR\bfilename\"-\n" +
+	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x0e\n" +
+	"\x02fd\x18\x02 \x01(\x05R\x02fd\"-\n" +
 	"\x0fTestAuthRequest\x12\x1a\n" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\"R\n" +
 	"\fOpenResponse\x12\x0e\n" +

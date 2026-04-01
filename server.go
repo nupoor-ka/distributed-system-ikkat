@@ -39,8 +39,9 @@ type FileMeta struct {
 
 	clients map[string]ClientState
 
-	primeSet map[uint64]bool //per file
 }
+
+type FilePrimeSet map[uint64]struct{} //////////
 
 type FileEntry struct {
 	mu   sync.Mutex
@@ -64,14 +65,16 @@ type FileKey struct {
 }
 
 type server struct {
+	pb.UnimplementedFileServiceServer
+
 	mu sync.Mutex
 
-	files    map[int32]*FileMeta // FD → metadata
+	files    map[int32]*FileMeta // FD -> metadata
 	table    map[string]*FileEntry
 	nextFD   int32
 	requests map[string]*RequestEntry
 	rootDir  string
-	// (clientID:filename) → FD (lookup)
+	// (clientID:filename) -> FD (lookup)
 	openMap map[FileKey]int32
 }
 
@@ -152,7 +155,7 @@ func (s *server) rebuildVersionTable() {
 		}
 
 		// ======================
-		// ✅ LOAD VERSION
+		// LOAD VERSION
 		// ======================
 		version := s.loadVersion(name)
 
@@ -320,14 +323,12 @@ func (s *server) cleanupLeases() {
 }
 func (s *server) FilterUniquePrimes(primes []uint64, primeSet map[uint64]bool) []uint64 {
 	var unique []uint64
-
 	for _, p := range primes {
 		if !primeSet[p] {
 			primeSet[p] = true // persists automatically
 			unique = append(unique, p)
 		}
 	}
-
 	return unique
 }
 
@@ -438,7 +439,7 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 	return resp, nil
 }
 
-func (s *server) Delete(ctx context.Context, req *pb.FileRequest) (*pb.DeleteResponse, error) {
+func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
 	// Request cache
 	s.mu.Lock()
 	if entry, ok := s.requests[req.RequestId]; ok &&
@@ -770,7 +771,7 @@ func (s *server) Close(stream pb.FileService_CloseServer) error {
 			entry = s.getFileEntry(filename)
 
 			// ======================
-			// ONLY IF DIRTY → WRITE FLOW
+			// ONLY IF DIRTY -> WRITE FLOW
 			// ======================
 			if dirty {
 
@@ -846,7 +847,7 @@ func (s *server) Close(stream pb.FileService_CloseServer) error {
 			return status.Errorf(codes.Internal, "rename failed")
 		}
 
-		// Commit tempPrimeSet → meta.primeSet
+		// Commit tempPrimeSet -> meta.primeSet
 		meta.mu.Lock()
 		meta.primeSet = tempPrimeSet
 		meta.mu.Unlock()
@@ -871,7 +872,7 @@ func (s *server) Close(stream pb.FileService_CloseServer) error {
 			entry.mu.Unlock()
 		}
 	} else {
-		// No write → just return version
+		// No write -> just return version
 		entry.mu.Lock()
 		newVersion = entry.version
 		entry.mu.Unlock()
@@ -1044,13 +1045,13 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 
 	file := meta.file
 
-	// Reset pointer → IMPORTANT for retry
+	// Reset pointer -> IMPORTANT for retry
 	_, err = file.Seek(0, 0)
 	if err != nil {
 		return status.Errorf(codes.Internal, "seek failed")
 	}
 
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, ChunkSize)
 
 	for {
 		n, err := file.Read(buf)
@@ -1194,7 +1195,7 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 			meta.mu.Unlock()
 
 			// ======================
-			// ONLY IF DIRTY → WRITE FLOW
+			// ONLY IF DIRTY -> WRITE FLOW
 			// ======================
 			if dirty {
 
@@ -1281,7 +1282,7 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 			entry.ReleaseWrite()
 			return status.Errorf(codes.Internal, "rename failed")
 		}
-		// Commit tempPrimeSet → meta.primeSet
+		// Commit tempPrimeSet -> meta.primeSet
 		meta.mu.Lock()
 		meta.primeSet = tempPrimeSet
 		meta.mu.Unlock()
@@ -1301,7 +1302,7 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 		entry.ReleaseWrite()
 
 	} else {
-		// No write → just return current version
+		// No write -> just return current version
 		entry.mu.Lock()
 		newVersion = entry.version
 		entry.mu.Unlock()
