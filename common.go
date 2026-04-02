@@ -6,6 +6,7 @@ import (
 	"math/bits"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -27,7 +28,7 @@ func sanitizePath(p string) (string, error) {
 	return safe, nil
 }
 
-// Function to real local cache file by client
+// Function to read local cache file by client
 func readLocalFile(path string, offset int64, size int64) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -79,7 +80,6 @@ func modExp(base, exp, mod uint64) uint64 {
 	return result
 }
 
-// 
 func mulMod(a, b, mod uint64) uint64 {
 	hi, lo := bits.Mul64(a, b)
 	_, rem := bits.Div64(hi, lo, mod)
@@ -130,6 +130,19 @@ func isPrime(n uint64) bool {
 		}
 	}
 	return true
+}
+
+func parseNumbers(data []byte) []uint64 {
+	var nums []uint64
+	fields := strings.Fields(string(data))
+
+	for _, f := range fields {
+		n, err := strconv.ParseUint(f, 10, 64)
+		if err == nil {
+			nums = append(nums, n)
+		}
+	}
+	return nums
 }
 
 //nums := []uint64{10, 11, 13, 15, 17, 19, 20}
