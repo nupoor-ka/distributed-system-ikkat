@@ -43,6 +43,7 @@ type FilePrimeSet map[uint64]struct{} //////////
 
 type FileEntry struct {
 	mu             sync.Mutex
+	FD             int32
 	cond           *sync.Cond //Used to block or wake go routines
 	activeReaders  int        //Number of readers currently holding file
 	activeWriter   bool       //Only 1 writter is allowed
@@ -87,7 +88,6 @@ type server struct {
 // Building version table after crash
 func (s *server) saveVersion(filename string, version int32) {
 	metaPath := filepath.Join(s.rootDir, filename+".meta")
-
 	data := []byte(fmt.Sprintf("%d", version))
 	os.WriteFile(metaPath, data, 0644)
 }
@@ -242,11 +242,7 @@ func (s *server) cleanupLeases() {
 			file     *os.File
 		}
 		var expired []expiredLease
-
-		// ======================
-		// COLLECT EXPIRED LEASES
-		// ======================
-		s.mu.Lock()
+		s.mu.Lock() // collect expired leases
 		for fd, meta := range s.files {
 
 			meta.mu.Lock()
@@ -1305,10 +1301,3 @@ func (s *server) TestAuth(ctx context.Context, req *pb.TestAuthRequest) (*pb.Tes
 	entry.mu.Unlock()                                  // release lock
 	return &pb.TestAuthResponse{Version: version}, nil // just returning version in response
 }
-
-// func to send state update information from primary to backup
-// backup servers should expect this every x seconds else they check in
-
-// func for backup servers to send a check-in message to primary
-
-// func for backup servers to select new server as primary and send messages to current clients
