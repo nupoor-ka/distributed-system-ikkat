@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc"                      // normal connecting
+	"google.golang.org/grpc/codes"                // error codes
+	"google.golang.org/grpc/credentials/insecure" // no credentials for security rn
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -28,12 +28,8 @@ import (
 // primeSet is local cache of each server
 
 const (
-	MaxOpenFiles         = 1000             //Limits how many files your server can keep open at once
-	RequestCacheTTL      = 5 * time.Minute  //defines how long a cached request stays valid.
-	LeaseTimeout         = 10 * time.Minute //A client holds access rights for 10 minutes before it expires
-	ServerStorageDir     = "./storage"      //Directory path where server stores files
-	HeartBeatTime        = 2 * time.Second  // primary sends a HeartBeat message at every this interval
-	PrimaryFailedTimeout = 5 * time.Second  // if backups receive no heartbeat from primary for this long, primary is assumed to have failed
+	HeartBeatTime        = 2 * time.Second // primary sends a HeartBeat message at every this interval
+	PrimaryFailedTimeout = 5 * time.Second // if backups receive no heartbeat from primary for this long, primary is assumed to have failed
 )
 
 type Replication struct {
@@ -70,68 +66,10 @@ type Heartbeat struct {
 
 type Role int
 
-type ClientState struct {
-	lastSeen time.Time
-	mode     FileMode
-}
-
-type FileMeta struct {
-	mu       sync.Mutex
-	file     *os.File // Pointer to the actual open file
-	filename string
-	version  int32
-	clients  map[string]ClientState
-}
-
-type FilePrimeSet map[uint64]struct{} //////////
-
-type FileEntry struct {
-	mu             sync.Mutex
-	cond           *sync.Cond //Used to block or wake go routines
-	activeReaders  int        //Number of readers currently holding file
-	activeWriter   bool       //Only 1 writter is allowed
-	waitingWriters int        //Number of writers waiting
-	version        int32
-}
-
-type RequestEntry struct {
-	response  interface{}
-	timestamp time.Time
-}
-
-type FileKey struct {
-	clientID string
-	filename string
-}
-
 const (
 	Primary Role = iota
 	Backup
 )
-
-type server struct {
-	pb.UnimplementedFileServiceServer
-	pb.UnimplementedReplicationServiceServer
-	pb.UnimplementedRecoveryServiceServer
-	pb.UnimplementedHeartbeatServiceServer
-	mu            sync.Mutex
-	id            string
-	role          Role
-	primaryID     string
-	servers       map[string]ServerInfo // cluster info
-	files         map[int32]*FileMeta   // file system (runtime)
-	table         map[string]*FileEntry
-	nextFD        int32
-	requests      map[string]*RequestEntry // request cache (idempotency)
-	openMap       map[FileKey]int32        // lookup
-	rootDir       string
-	log           []LogEntry // replication
-	commitIndex   int
-	lastApplied   int
-	lastHeartbeat time.Time                // failure detection
-	logFilePath   string                   // persistence
-	filesPrimes   map[string]*FilePrimeSet // file to file prime set, only needed by primary, if a server is primary, created on boot
-}
 
 // UpdateMessage is used for recovery and synchronization of out-of-date replicas, while normal replication is handled using log-based AppendEntries with majority acknowledgment
 type UpdateMessage struct {
@@ -306,7 +244,7 @@ func (s *server) appendToDisk(entry LogEntry) error {
 	if err != nil {
 		return err
 	}
-	return f.Sync() // ensures durability, how?
+	return f.Sync() // ensures durability, flushes buffered file data to disk immediately
 }
 
 // Recover from logs
@@ -327,17 +265,6 @@ func (s *server) recoverFromLog() error {
 		s.apply(entry) // rebuild state
 	}
 	return scanner.Err()
-}
-
-func (s *server) FilterUniquePrimes(primes []uint64, primeSet FilePrimeSet) []uint64 {
-	var unique []uint64
-	for _, p := range primes {
-		if _, exists := primeSet[p]; !exists {
-			primeSet[p] = struct{}{} // persists automatically
-			unique = append(unique, p)
-		}
-	}
-	return unique
 }
 
 // RebuildPrimeSet reconstructs the derived primeSet from file contents after recovery or replication.
@@ -742,67 +669,16 @@ func main() {
 			}
 		}
 	}()
+	go s.cleanupRequests()
+	go s.cleanupLeases()
+	go s.startCleanupRoutine()
+	s.rebuildVersionTable()
+	// s.cleanupTempFiles()
 	// ----------- 9. Start server -----------
 	log.Println("Listening on", address)
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
-}
-
-func (s *server) getFileEntry(name string) *FileEntry {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entry, ok := s.table[name]
-	if !ok {
-		entry = &FileEntry{version: 1}
-		entry.cond = sync.NewCond(&entry.mu)
-		s.table[name] = entry
-	}
-	return entry
-}
-
-func (fe *FileEntry) CanWrite() bool {
-	return !fe.activeWriter && fe.activeReaders == 0
-}
-
-func (fe *FileEntry) CanRead() bool {
-	return !fe.activeWriter && fe.waitingWriters == 0
-}
-
-func (fe *FileEntry) AcquireRead() {
-	fe.mu.Lock()
-	for !fe.CanRead() {
-		fe.cond.Wait()
-	}
-	fe.activeReaders++
-	fe.mu.Unlock()
-}
-
-func (fe *FileEntry) ReleaseRead() {
-	fe.mu.Lock()
-	if fe.activeReaders > 0 {
-		fe.activeReaders--
-	}
-	fe.cond.Broadcast()
-	fe.mu.Unlock()
-}
-
-func (fe *FileEntry) AcquireWrite() {
-	fe.mu.Lock()
-	fe.waitingWriters++
-	for !fe.CanWrite() {
-		fe.cond.Wait()
-	}
-	fe.waitingWriters--
-	fe.activeWriter = true
-	fe.mu.Unlock()
-}
-
-func (fe *FileEntry) ReleaseWrite() {
-	fe.mu.Lock()
-	fe.activeWriter = false
-	fe.cond.Broadcast()
-	fe.mu.Unlock()
 }
 
 // Client -> Leader
@@ -813,7 +689,7 @@ func (fe *FileEntry) ReleaseWrite() {
 // -> apply locally
 // -> followers apply via LeaderCommit
 // //Write Updated
-func (s *server) Write(stream pb.FileService_WriteServer) error {
+func (s *server) Write_Rep(stream pb.FileService_WriteServer) error {
 	var meta *FileMeta
 	var filename string
 	var entry *FileEntry
@@ -1032,7 +908,7 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 	return stream.SendAndClose(resp)
 }
 
-func (s *server) Close(stream pb.FileService_CloseServer) error {
+func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
 	var meta *FileMeta
 	var filename string
 	var entry *FileEntry

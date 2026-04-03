@@ -135,7 +135,6 @@ func isPrime(n uint64) bool {
 func parseNumbers(data []byte) []uint64 {
 	var nums []uint64
 	fields := strings.Fields(string(data))
-
 	for _, f := range fields {
 		n, err := strconv.ParseUint(f, 10, 64)
 		if err == nil {
