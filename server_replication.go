@@ -695,7 +695,7 @@ func (s *server) Write_Rep(stream pb.FileService_WriteServer) error {
 	var entry *FileEntry
 	var tmpFile *os.File
 	var reqID string
-	var mode FileMode
+	var mode pb.FileMode
 	var dirty bool
 	var clientID string
 	var tempPrimeSet FilePrimeSet
@@ -769,7 +769,7 @@ func (s *server) Write_Rep(stream pb.FileService_WriteServer) error {
 			if dirty { // write only if dirty
 				entry.AcquireWrite()
 				// Validate
-				if mode != WriteMode {
+				if mode != pb.FileMode_WRITE {
 					entry.ReleaseWrite()
 					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
 				}
@@ -914,7 +914,7 @@ func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
 	var entry *FileEntry
 	var tmpFile *os.File
 	var reqID string
-	var mode FileMode
+	var mode pb.FileMode
 	var dirty bool
 	var clientID string
 	var tempPrimeSet FilePrimeSet
@@ -974,7 +974,7 @@ func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
 			if dirty { // write only if dirty
 				entry.AcquireWrite()
 				// Validate
-				if mode != WriteMode {
+				if mode != pb.FileMode_WRITE {
 					entry.ReleaseWrite()
 					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
 				}

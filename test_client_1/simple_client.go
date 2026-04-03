@@ -68,17 +68,18 @@ func main() {
 		}
 	}
 	primeResult := strings.Join(primes, " ")
-	fmt.Printf("   Found primes: %s\n", primeResult)
+	fmt.Printf("   Found %d primes\n", len(primeResult)) // no need to print them, we have faith
 
 	// 6. Send Open request for output file in WRITE mode
 	fmt.Println("Step 6: Creating and opening output file...")
-	c.Create(ctx, outputName, client_id)
+	if _, err := c.Create(ctx, outputName, client_id); err != nil {
+		log.Fatalf("Open output failed: %v", err)
+	}
 	if _, err := c.Open(ctx, outputName, 1, client_id); err != nil {
 		log.Fatalf("Open output failed: %v", err)
 	}
 
 	// 7. Write to the output file using your custom Write function
-	// This automatically sets Dirty = true and handles local caching
 	fmt.Println("Step 7: Writing primes to output...")
 	if err := c.WriteFile(ctx, outputName, []byte(primeResult)); err != nil {
 		log.Fatalf("Failed to write output: %v", err)

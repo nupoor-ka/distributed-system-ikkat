@@ -28,7 +28,7 @@ const (
 
 type ClientState struct {
 	lastSeen time.Time
-	mode     FileMode
+	mode     pb.FileMode
 }
 
 type FileMeta struct {
@@ -238,7 +238,7 @@ func (s *server) cleanupLeases() {
 		type expiredLease struct {
 			clientID string
 			filename string
-			mode     FileMode
+			mode     pb.FileMode
 			file     *os.File
 		}
 		var expired []expiredLease
@@ -283,9 +283,9 @@ func (s *server) cleanupLeases() {
 
 			entry := s.getFileEntry(e.filename)
 
-			if e.mode == ReadMode {
+			if e.mode == pb.FileMode_READ {
 				entry.ReleaseRead()
-			} else if e.mode == WriteMode || e.mode == ReadWriteMode {
+			} else if e.mode == pb.FileMode_WRITE || e.mode == pb.FileMode(2) {
 				entry.ReleaseWrite()
 			}
 		}
@@ -332,7 +332,8 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 	}
 
 	// Only output/
-	if !strings.HasPrefix(safe, "output/") {
+	if !(strings.HasPrefix(safe, "output/") || strings.HasPrefix(safe, "output\\")) {
+		// log.Println("file path after sanitization", safe) ////////
 		return nil, status.Errorf(codes.PermissionDenied, "only output/")
 	}
 
@@ -388,7 +389,7 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 
 	meta.clients[clientID] = ClientState{
 		lastSeen: time.Now(),
-		mode:     FileMode(req.Mode),
+		mode:     pb.FileMode(req.Mode),
 	}
 
 	s.files[fd] = meta
@@ -525,7 +526,7 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	if s.files == nil {
 		s.files = make(map[int32]*FileMeta)
 	}
-	if s.openMap == nil { // 🔥 ADD THIS
+	if s.openMap == nil { // ADD THIS
 		s.openMap = make(map[FileKey]int32)
 	}
 	s.mu.Unlock()
@@ -554,14 +555,14 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	full := filepath.Join(s.rootDir, safe)
 
 	entry := s.getFileEntry(safe)
-	mode := FileMode(req.Mode)
+	mode := pb.FileMode(req.Mode)
 
 	log.Println("Opening file:", full)
 
 	// ---------- INPUT FILE ----------
 	if strings.HasPrefix(safe, "input/") {
 
-		if mode != ReadMode {
+		if mode != pb.FileMode_READ {
 			return nil, status.Errorf(codes.PermissionDenied, "input files are read-only")
 		}
 
@@ -628,20 +629,20 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	}
 
 	// ---------- OUTPUT FILE ----------
-	if mode == ReadMode {
+	if mode == pb.FileMode_READ {
 		entry.AcquireRead()
 	} else {
 		entry.AcquireWrite()
 	}
 
 	flags := os.O_RDONLY
-	if mode == WriteMode {
+	if mode == pb.FileMode_WRITE {
 		flags = os.O_RDWR
 	}
 
 	file, err := os.OpenFile(full, flags, 0666)
 	if err != nil {
-		if mode == ReadMode {
+		if mode == pb.FileMode_READ {
 			entry.ReleaseRead()
 		} else {
 			entry.ReleaseWrite()
@@ -655,7 +656,7 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 
 	if len(s.files) >= MaxOpenFiles {
 		file.Close()
-		if mode == ReadMode {
+		if mode == pb.FileMode_READ {
 			entry.ReleaseRead()
 		} else {
 			entry.ReleaseWrite()
@@ -715,7 +716,7 @@ func (s *server) Close(stream pb.FileService_CloseServer) error {
 	var entry *FileEntry
 	var tmpFile *os.File
 	var reqID string
-	var mode FileMode
+	var mode pb.FileMode
 	var dirty bool
 	var clientID string
 	var tempPrimeSet FilePrimeSet
@@ -799,7 +800,7 @@ func (s *server) Close(stream pb.FileService_CloseServer) error {
 				entry.AcquireWrite()
 
 				// Validate
-				if mode != WriteMode {
+				if mode != pb.FileMode_WRITE {
 					entry.ReleaseWrite()
 					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
 				}
@@ -1044,7 +1045,7 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 	}
 
 	mode := client.mode
-	if mode != ReadMode && mode != WriteMode && mode != ReadWriteMode {
+	if mode != pb.FileMode_READ && mode != pb.FileMode_WRITE && mode != pb.FileMode(2) {
 		return status.Errorf(codes.PermissionDenied, "read not allowed")
 	}
 
@@ -1115,7 +1116,7 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 	var entry *FileEntry
 	var tmpFile *os.File
 	var reqID string
-	var mode FileMode
+	var mode pb.FileMode
 	var dirty bool
 	var clientID string
 	var tempPrimeSet FilePrimeSet
@@ -1218,7 +1219,7 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 				entry.AcquireWrite()
 
 				// Validate
-				if mode != WriteMode {
+				if mode != pb.FileMode_WRITE {
 					entry.ReleaseWrite()
 					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
 				}

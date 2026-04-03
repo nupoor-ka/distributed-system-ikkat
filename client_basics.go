@@ -216,7 +216,7 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		}
 		if entry.Version == ta_resp.Version {
 			if entry.Mode != mode { // trying to open in a mode other than current
-				if entry.Mode == pb.FileMode(ReadMode) {
+				if entry.Mode == pb.FileMode_READ {
 					return nil, status.Error(codes.FailedPrecondition, "file already open in read mode, to open in write, close file then open in write mode")
 				}
 			}
@@ -366,7 +366,7 @@ func (c *client) WriteFile(ctx context.Context, filename string, data []byte) er
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
 	}
-	if entry.Mode == pb.FileMode(ReadMode) {
+	if entry.Mode == pb.FileMode_READ {
 		return status.Error(codes.PermissionDenied, "file opened in read mode")
 	}
 	err := os.WriteFile(entry.LocalPath, data, 0644) // owner rw-, grp r--, other r--
@@ -384,7 +384,7 @@ func (c *client) AppendFile(filename string, data []byte) error {
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
 	}
-	if entry.Mode == pb.FileMode(ReadMode) {
+	if entry.Mode == pb.FileMode_READ {
 		return status.Error(codes.PermissionDenied, "file opened in read mode")
 	}
 	f, err := os.OpenFile(entry.LocalPath, os.O_APPEND|os.O_WRONLY, 0644)
@@ -420,7 +420,7 @@ func (c *client) Commit(ctx context.Context, filename string, clientID string) e
 	}
 	defer file.Close()
 
-	// ✅ ADD METADATA HERE
+	// ADD METADATA HERE
 	ctx = withClientID(ctx, clientID)
 
 	// Start streaming RPC
