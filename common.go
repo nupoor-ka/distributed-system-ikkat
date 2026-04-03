@@ -1,4 +1,4 @@
-package main
+package ikkat
 
 import (
 	"fmt"
@@ -102,7 +102,7 @@ func check(a, d, n uint64, r int) bool {
 }
 
 // Deterministic Miller-Rabin for 64-bit integers
-func isPrime(n uint64) bool {
+func IsPrime(n uint64) bool {
 	if n < 2 {
 		return false
 	}

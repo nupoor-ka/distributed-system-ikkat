@@ -1,4 +1,4 @@
-package main
+package ikkat
 
 import (
 	"context"
@@ -23,7 +23,7 @@ const (
 	MaxOpenFiles     = 1000             //Limits how many files your server can keep open at once
 	RequestCacheTTL  = 5 * time.Minute  //defines how long a cached request stays valid.
 	LeaseTimeout     = 10 * time.Minute //A client holds access rights for 10 minutes before it expires
-	ServerStorageDir = "./storage"      //Directory path where server stores files
+	ServerStorageDir = "storage"        //Directory path where server stores files
 )
 
 type ClientState struct {
@@ -534,14 +534,17 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	full := filepath.Join(s.rootDir, safe)
 	entry := s.getFileEntry(safe)
 	mode := FileMode(req.Mode)
-
+	safe = filepath.ToSlash(safe)
+	safe = strings.TrimSpace(safe)
+	safe = strings.TrimPrefix(safe, "/")
 	if strings.HasPrefix(safe, "input/") {
 		entry.AcquireReadNoPriority()
 
 		file, err := os.OpenFile(full, os.O_RDONLY, 0666)
 		if err != nil {
 			entry.ReleaseRead()
-			return nil, status.Errorf(codes.NotFound, "not found")
+			log.Println("opening file at", full)
+			return nil, status.Errorf(codes.NotFound, "prefix input, input file cannot be opened in write mode")
 		}
 
 		s.mu.Lock()
@@ -605,7 +608,7 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 		} else {
 			entry.ReleaseWrite()
 		}
-		return nil, status.Errorf(codes.NotFound, "not found")
+		return nil, status.Errorf(codes.NotFound, "output file, error in os.OpenFile")
 	}
 
 	s.mu.Lock()
