@@ -17,6 +17,7 @@ import (
 	pb "distributed-system-ikkat/filesystem"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -286,10 +287,17 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 	return new_entry, nil
 }
 
+func withClientID(ctx context.Context, clientID string) context.Context {
+	md := metadata.New(map[string]string{
+		"client-id": clientID,
+	})
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
 // send read request to server, currently always reading the whole file, doesn't allow partial reads
 // Chunking is applied
 // At end returns full
-func (c *client) Read(ctx context.Context, filename string) ([]byte, error) {
+func (c *client) Read(ctx context.Context, filename string, clientID string) ([]byte, error) {
 	entry, ok := c.cache[filename]
 	if !ok {
 		return nil, status.Error(codes.NotFound, "file not open")
@@ -302,6 +310,7 @@ func (c *client) Read(ctx context.Context, filename string) ([]byte, error) {
 		return nil, err
 	}
 
+	ctx = withClientID(ctx, clientID)
 	// Start streaming from server
 	stream, err := c.server.Read(ctx, &pb.ReadRequest{
 		Filename: filename,
@@ -352,7 +361,7 @@ func (c *client) Read(ctx context.Context, filename string) ([]byte, error) {
 }
 
 // just write to file
-func (c *client) Write(ctx context.Context, filename string, data []byte) error {
+func (c *client) WriteFile(ctx context.Context, filename string, data []byte) error {
 	entry, ok := c.cache[filename]
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
@@ -370,7 +379,7 @@ func (c *client) Write(ctx context.Context, filename string, data []byte) error 
 }
 
 // added append if client needs it
-func (c *client) Append(filename string, data []byte) error {
+func (c *client) AppendFile(filename string, data []byte) error {
 	entry, ok := c.cache[filename]
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
@@ -392,8 +401,8 @@ func (c *client) Append(filename string, data []byte) error {
 	return nil
 }
 
-// write the changes to the server but keep the file open
-func (c *client) Commit(ctx context.Context, filename string) error {
+func (c *client) Commit(ctx context.Context, filename string, clientID string) error {
+
 	entry, ok := c.cache[filename]
 	if !ok {
 		return errors.New("file not in cache")
@@ -404,11 +413,16 @@ func (c *client) Commit(ctx context.Context, filename string) error {
 	if !entry.Dirty {
 		return nil
 	}
-	file, err := os.Open(entry.LocalPath) // open file
+
+	file, err := os.Open(entry.LocalPath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
+
+	// ✅ ADD METADATA HERE
+	ctx = withClientID(ctx, clientID)
+
 	// Start streaming RPC
 	stream, err := c.server.Write(ctx)
 	if err != nil {
@@ -422,7 +436,7 @@ func (c *client) Commit(ctx context.Context, filename string) error {
 
 		if n > 0 {
 			req := &pb.WriteRequest{
-				RequestId: generateRequestID(), // optional: same ID for all chunks also fine
+				RequestId: generateRequestID(),
 				Fd:        entry.Fd,
 				Version:   entry.Version,
 				Data:      buf[:n],
@@ -455,13 +469,17 @@ func (c *client) Commit(ctx context.Context, filename string) error {
 }
 
 // close a file, write if dirty
-func (c *client) Close(ctx context.Context, filename string) error {
+func (c *client) Close(ctx context.Context, filename string, clientID string) error {
+
 	entry, ok := c.cache[filename]
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
 	}
 
 	reqID := generateRequestID()
+
+	// ✅ ADD METADATA HERE
+	ctx = withClientID(ctx, clientID)
 
 	// Start streaming RPC
 	stream, err := c.server.Close(ctx)
@@ -523,7 +541,7 @@ func (c *client) Close(ctx context.Context, filename string) error {
 		return err
 	}
 
-	// Keep everything else SAME
+	// Update metadata
 	entry.Version = resp.Version
 	entry.Dirty = false
 	entry.Closed = true
@@ -563,4 +581,20 @@ func (c *client) Delete(ctx context.Context, filename string) error {
 		}
 	}
 	return nil
+}
+
+func (c *client) ReadFile(filename string) ([]byte, error) {
+	entry, ok := c.cache[filename]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "file not open")
+	}
+
+	data, err := os.ReadFile(entry.LocalPath)
+	if err != nil {
+		return nil, err
+	}
+
+	touchLRU(c, filename)
+
+	return data, nil
 }

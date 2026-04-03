@@ -50,7 +50,7 @@ func main() {
 
 	// 5. Run Prime Finding application on input file
 	fmt.Println("Step 5: Processing primes...")
-	rawContent, err := c.Read(ctx, inputName)
+	rawContent, err := c.Read(ctx, inputName, client_id)
 	if err != nil {
 		log.Fatalf("Read failed: %v", err)
 	}
@@ -80,14 +80,14 @@ func main() {
 	// 7. Write to the output file using your custom Write function
 	// This automatically sets Dirty = true and handles local caching
 	fmt.Println("Step 7: Writing primes to output...")
-	if err := c.Write(ctx, outputName, []byte(primeResult)); err != nil {
+	if err := c.WriteFile(ctx, outputName, []byte(primeResult)); err != nil {
 		log.Fatalf("Failed to write output: %v", err)
 	}
 
 	// 8. Send Close request for the output file
 	// This triggers the commit to the distributed cluster
 	fmt.Println("Step 8: Closing output file (committing to cluster)...")
-	if err := c.Close(ctx, outputName); err != nil {
+	if err := c.Close(ctx, outputName, client_id); err != nil {
 		log.Fatalf("Close output failed: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func main() {
 	}
 
 	// Use your custom Read function to fetch the committed data
-	finalData, err := c.Read(ctx, outputName)
+	finalData, err := c.Read(ctx, outputName, client_id)
 	if err != nil {
 		log.Fatalf("Final read failed: %v", err)
 	}

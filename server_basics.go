@@ -516,7 +516,21 @@ func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 
 // Opens file
 func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenResponse, error) {
-	// Cache
+
+	// ---------- SAFETY: INIT MAPS ----------
+	s.mu.Lock()
+	if s.requests == nil {
+		s.requests = make(map[string]*RequestEntry)
+	}
+	if s.files == nil {
+		s.files = make(map[int32]*FileMeta)
+	}
+	if s.openMap == nil { // 🔥 ADD THIS
+		s.openMap = make(map[FileKey]int32)
+	}
+	s.mu.Unlock()
+
+	// ---------- CACHE CHECK ----------
 	s.mu.Lock()
 	if entry, ok := s.requests[req.RequestId]; ok &&
 		time.Since(entry.timestamp) < RequestCacheTTL {
@@ -526,30 +540,44 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	}
 	s.mu.Unlock()
 
+	// ---------- SANITIZE PATH ----------
 	safe, err := sanitizePath(req.Filename)
 	if err != nil {
 		return nil, err
 	}
 
-	full := filepath.Join(s.rootDir, safe)
-	entry := s.getFileEntry(safe)
-	mode := FileMode(req.Mode)
+	// Normalize BEFORE using
 	safe = filepath.ToSlash(safe)
 	safe = strings.TrimSpace(safe)
 	safe = strings.TrimPrefix(safe, "/")
+
+	full := filepath.Join(s.rootDir, safe)
+
+	entry := s.getFileEntry(safe)
+	mode := FileMode(req.Mode)
+
+	log.Println("Opening file:", full)
+
+	// ---------- INPUT FILE ----------
 	if strings.HasPrefix(safe, "input/") {
+
+		if mode != ReadMode {
+			return nil, status.Errorf(codes.PermissionDenied, "input files are read-only")
+		}
+
 		entry.AcquireReadNoPriority()
 
 		file, err := os.OpenFile(full, os.O_RDONLY, 0666)
 		if err != nil {
 			entry.ReleaseRead()
-			log.Println("opening file at", full)
-			return nil, status.Errorf(codes.NotFound, "prefix input, input file cannot be opened in write mode")
+			log.Println("ERROR opening input:", full, err)
+			return nil, status.Errorf(codes.NotFound, "input file not found")
 		}
 
 		s.mu.Lock()
+		defer s.mu.Unlock()
+
 		if len(s.files) >= MaxOpenFiles {
-			s.mu.Unlock()
 			file.Close()
 			entry.ReleaseRead()
 			return nil, status.Errorf(codes.ResourceExhausted, "too many open files")
@@ -565,31 +593,41 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 			filename: safe,
 			version:  entry.version,
 			clients:  make(map[string]ClientState),
-			// primeSet: make(map[uint64]bool), // if using
 		}
 
 		meta.clients[clientID] = ClientState{
 			lastSeen: time.Now(),
-			mode:     FileMode(req.Mode),
+			mode:     mode,
 		}
 
 		s.files[fd] = meta
 
+		key := FileKey{
+			clientID: clientID,
+			filename: safe,
+		}
+		s.openMap[key] = fd
+
+		log.Println("OPEN STORE:",
+			clientID,
+			"||", safe, "||",
+		)
+
 		resp := &pb.OpenResponse{
 			Fd:      fd,
 			Version: entry.version,
-			Message: "opened input",
+			Message: "opened input file",
 		}
 
 		s.requests[req.RequestId] = &RequestEntry{
 			response:  resp,
 			timestamp: time.Now(),
 		}
-		s.mu.Unlock()
+
 		return resp, nil
 	}
 
-	// OUTPUT FILE
+	// ---------- OUTPUT FILE ----------
 	if mode == ReadMode {
 		entry.AcquireRead()
 	} else {
@@ -608,12 +646,14 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 		} else {
 			entry.ReleaseWrite()
 		}
-		return nil, status.Errorf(codes.NotFound, "output file, error in os.OpenFile")
+		log.Println("ERROR opening output:", full, err)
+		return nil, status.Errorf(codes.NotFound, "output file not found")
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if len(s.files) >= MaxOpenFiles {
-		s.mu.Unlock()
 		file.Close()
 		if mode == ReadMode {
 			entry.ReleaseRead()
@@ -633,27 +673,36 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 		filename: safe,
 		version:  entry.version,
 		clients:  make(map[string]ClientState),
-		// primeSet: make(map[uint64]bool), // if using
 	}
 
 	meta.clients[clientID] = ClientState{
 		lastSeen: time.Now(),
-		mode:     FileMode(req.Mode),
+		mode:     mode,
 	}
 
 	s.files[fd] = meta
 
+	key := FileKey{
+		clientID: clientID,
+		filename: safe,
+	}
+	s.openMap[key] = fd
+
+	log.Println("OPEN STORE:",
+		clientID,
+		"||", safe, "||",
+	)
+
 	resp := &pb.OpenResponse{
 		Fd:      fd,
 		Version: entry.version,
-		Message: "opened file",
+		Message: "opened output file",
 	}
 
 	s.requests[req.RequestId] = &RequestEntry{
 		response:  resp,
 		timestamp: time.Now(),
 	}
-	s.mu.Unlock()
 
 	return resp, nil
 }
@@ -959,11 +1008,20 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 		return status.Errorf(codes.InvalidArgument, "invalid path")
 	}
 
+	safe = filepath.ToSlash(safe)
+	safe = strings.TrimSpace(safe)
+	safe = strings.TrimPrefix(safe, "/")
+
 	// Build struct key
 	key := FileKey{
 		clientID: clientID,
 		filename: safe,
 	}
+
+	log.Println("READ LOOKUP:",
+		clientID,
+		"||", safe, "||",
+	)
 
 	// Lookup FD using openMap
 	s.mu.Lock()
