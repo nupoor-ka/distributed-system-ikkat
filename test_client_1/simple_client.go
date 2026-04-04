@@ -67,13 +67,13 @@ func main() {
 			primes = append(primes, s)
 		}
 	}
-	primeResult := strings.Join(primes, " ")
+	primeResult := strings.Join(primes, "\n")
 	fmt.Printf("   Found %d primes\n", len(primeResult)) // no need to print them, we have faith
 
 	// 6. Send Open request for output file in WRITE mode
 	fmt.Println("Step 6: Creating and opening output file...")
 	if _, err := c.Create(ctx, outputName, client_id); err != nil {
-		log.Fatalf("Open output failed: %v", err)
+		log.Printf("Create output failed: %v", err)
 	}
 	if _, err := c.Open(ctx, outputName, 1, client_id); err != nil {
 		log.Fatalf("Open output failed: %v", err)
