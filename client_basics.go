@@ -213,10 +213,8 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		// log.Println("entry version", entry.Version, "ta version", ta_resp.Version)
 		if entry.Version == ta_resp.Version {
 			// log.Println("the versions match")
-			if entry.Mode != mode { // trying to open in a mode other than current
-				if entry.Mode == pb.FileMode_READ {
-					return nil, status.Error(codes.FailedPrecondition, "file already open in read mode, to open in write, close file then open in write mode")
-				}
+			if (entry.Mode != mode) && (entry.Mode == pb.FileMode_READ) { // trying to open in a mode other than current
+				return nil, status.Error(codes.FailedPrecondition, "file already open in read mode, to open in write, close file then open in write mode")
 			}
 			entry.Valid = true
 			// log.Println("marked entry valid, filename is", entry.Filename)
@@ -236,7 +234,8 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 			}
 			entry.Fd = resp.Fd
 			entry.Closed = false
-			return entry, nil /////////////
+			log.Printf("open filename %q", filename) ////
+			return entry, nil                        /////////////
 		}
 	} else {
 		if len(c.cache) >= maxCacheEntries { // max 20 files open at once
@@ -315,23 +314,21 @@ func withClientID(ctx context.Context, clientID string) context.Context {
 // Chunking is applied
 // At end returns full
 func (c *client) Read(ctx context.Context, filename string, clientID string) ([]byte, error) {
+	log.Printf("read filename %q", filename) ////
 	entry, ok := c.cache[filename]
-	log.Println("filename", filename)
+	log.Printf("after checking cache filename %q", filename) ////
 	if !ok {
 		return nil, status.Error(codes.NotFound, "file not open")
 	}
-
 	if entry.Valid { // version up to date
-		return c.ReadFile(entry.LocalPath)
+		return c.ReadFile(filename, entry.LocalPath)
 	}
-
 	// Create/overwrite local file (use temp file for safety)
 	tmpPath := entry.LocalPath + ".tmp"
 	file, err := os.Create(tmpPath)
 	if err != nil {
 		return nil, err
 	}
-
 	ctx = withClientID(ctx, clientID)
 	// Start streaming from server
 	stream, err := c.server.Read(ctx, &pb.ReadRequest{
@@ -342,11 +339,9 @@ func (c *client) Read(ctx context.Context, filename string, clientID string) ([]
 		file.Close()
 		return nil, err
 	}
-
 	// Receive chunks
 	for {
 		chunk, err := stream.Recv()
-
 		if err == io.EOF {
 			break
 		}
@@ -355,7 +350,6 @@ func (c *client) Read(ctx context.Context, filename string, clientID string) ([]
 			os.Remove(tmpPath)
 			return nil, err
 		}
-
 		_, err = file.Write(chunk.Data)
 		if err != nil {
 			file.Close()
@@ -363,21 +357,17 @@ func (c *client) Read(ctx context.Context, filename string, clientID string) ([]
 			return nil, err
 		}
 	}
-
 	file.Close()
-
 	// Replace old file atomically
 	err = os.Rename(tmpPath, entry.LocalPath)
 	if err != nil {
 		return nil, err
 	}
-
 	// Read full data to return
 	data, err := os.ReadFile(entry.LocalPath)
 	if err != nil {
 		return nil, err
 	}
-
 	touchLRU(c, filename)
 	return data, nil
 }
@@ -561,12 +551,13 @@ func (c *client) Delete(ctx context.Context, filename string) error {
 	return nil
 }
 
-func (c *client) ReadFile(filename string) ([]byte, error) {
-	entry, ok := c.cache[filename]
+func (c *client) ReadFile(filename string, localPath string) ([]byte, error) {
+	_, ok := c.cache[filename]
+	// log.Printf("readfile filename %q", filename) ////
 	if !ok {
 		return nil, status.Error(codes.NotFound, "file not open")
 	}
-	data, err := os.ReadFile(entry.LocalPath)
+	data, err := os.ReadFile(localPath)
 	if err != nil {
 		return nil, err
 	}
