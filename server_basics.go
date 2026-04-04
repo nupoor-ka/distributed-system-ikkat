@@ -869,20 +869,19 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		if !ok || primeSetPtr == nil {
 			tempPrimeSet = make(FilePrimeSet)
 		} else {
-			tempPrimeSet = make(FilePrimeSet, len(*primeSetPtr))
-			for k, v := range *primeSetPtr {
-				tempPrimeSet[k] = v
-			}
+			tempPrimeSet = *primeSetPtr
 		}
 		// log.Printf("3") ///
 		s.mu.Unlock()
 
 		log.Println("Processing size:", len(req.Data))
 
+		s.mu.Lock()
 		nums := parseNumbers(req.Data)
-		unique := s.FilterUniquePrimes(nums, tempPrimeSet)
+		s.FilterUniquePrimes(nums, tempPrimeSet)
+		s.mu.Unlock()
 
-		for _, p := range unique {
+		for p := range tempPrimeSet {
 			line := fmt.Sprintf("%d\n", p)
 			if _, err := tmpFile.WriteString(line); err != nil {
 				tmpFile.Close()
