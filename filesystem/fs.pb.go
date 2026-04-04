@@ -864,13 +864,13 @@ const file_proto_fs_proto_rawDesc = "" +
 	"\aversion\x18\x01 \x01(\x05R\aversion*\x1f\n" +
 	"\bFileMode\x12\b\n" +
 	"\x04READ\x10\x00\x12\t\n" +
-	"\x05WRITE\x10\x012\xca\x03\n" +
+	"\x05WRITE\x10\x012\xc8\x03\n" +
 	"\vFileService\x129\n" +
 	"\x04Open\x12\x17.filesystem.FileRequest\x1a\x18.filesystem.OpenResponse\x12=\n" +
 	"\x06Create\x12\x19.filesystem.CreateRequest\x1a\x18.filesystem.OpenResponse\x12<\n" +
 	"\x05Close\x12\x18.filesystem.CloseRequest\x1a\x19.filesystem.CloseResponse\x12?\n" +
-	"\x06Delete\x12\x19.filesystem.DeleteRequest\x1a\x1a.filesystem.DeleteResponse\x12>\n" +
-	"\x05Write\x12\x18.filesystem.WriteRequest\x1a\x19.filesystem.WriteResponse(\x01\x12;\n" +
+	"\x06Delete\x12\x19.filesystem.DeleteRequest\x1a\x1a.filesystem.DeleteResponse\x12<\n" +
+	"\x05Write\x12\x18.filesystem.WriteRequest\x1a\x19.filesystem.WriteResponse\x12;\n" +
 	"\x04Read\x12\x17.filesystem.ReadRequest\x1a\x18.filesystem.ReadResponse0\x01\x12E\n" +
 	"\bTestAuth\x12\x1b.filesystem.TestAuthRequest\x1a\x1c.filesystem.TestAuthResponseB\rZ\v/filesystemb\x06proto3"
 

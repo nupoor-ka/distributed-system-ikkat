@@ -98,30 +98,24 @@ func touchLRU(c *client, filename string) {
 // retry for write, used by both commit and close
 func (c *client) retryWrite(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResponse, error) {
 	var lastErr error
-	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
-		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
-		stream, err := c.server.Write(ctx2)                  // streaming from client side, grpc.ClientStreamingClient[pb.WriteRequest, pb.WriteResponse]
-		if err != nil {                                      // error in opening stream
-			cancel() // removes timer and context resources
-			lastErr = err
-			time.Sleep(retryDelay) // wait and retry regardless of error type, can change this later
-			continue
-		}
-		if err := stream.Send(req); err != nil { // start sending if stream opened successfully, if error in send
-			cancel()
-			lastErr = err
-			time.Sleep(retryDelay)
-			continue
-		}
-		resp, err := stream.CloseAndRecv() // close stream and wait for server response
+
+	for attempt := 0; attempt < maxTries; attempt++ {
+
+		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout)
+
+		// ✅ Unary call instead of stream
+		resp, err := c.server.Write(ctx2, req)
+
 		cancel()
-		if err == nil { // successfully completed stream and got a response
+
+		if err == nil {
 			return resp, nil
 		}
+
 		lastErr = err
 		time.Sleep(retryDelay)
-		continue
 	}
+
 	return nil, lastErr
 }
 
@@ -444,54 +438,39 @@ func (c *client) Commit(ctx context.Context, filename string, clientID string) e
 		return nil
 	}
 
-	file, err := os.Open(entry.LocalPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+	reqID := generateRequestID()
 
-	// ADD METADATA HERE
+	// ✅ Timeout (same style as Close)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	// ✅ Attach metadata
 	ctx = withClientID(ctx, clientID)
 
-	// Start streaming RPC
-	stream, err := c.server.Write(ctx)
-	if err != nil {
-		return err
-	}
-
-	buf := make([]byte, ChunkSize)
-
-	for {
-		n, err := file.Read(buf)
-
-		if n > 0 {
-			req := &pb.WriteRequest{
-				RequestId: generateRequestID(),
-				Fd:        entry.Fd,
-				Version:   entry.Version,
-				Data:      buf[:n],
-			}
-
-			if err := stream.Send(req); err != nil {
-				return err
-			}
-		}
-
-		if err == io.EOF {
-			break
-		}
+	var data []byte
+	if entry.Dirty {
+		d, err := os.ReadFile(entry.LocalPath)
 		if err != nil {
 			return err
 		}
+		data = d
 	}
 
-	// Close stream and receive response
-	resp, err := stream.CloseAndRecv()
+	req := &pb.WriteRequest{
+		RequestId: reqID,
+		Fd:        entry.Fd,
+		Dirty:     entry.Dirty,
+		Version:   entry.Version,
+		Data:      data,
+	}
+
+	// ✅ Unary call (NO STREAM)
+	resp, err := c.server.Write(ctx, req)
 	if err != nil {
 		return err
 	}
 
-	// Update metadata
+	// ✅ Update metadata (same as before)
 	entry.Version = resp.Version
 	entry.Dirty = false
 

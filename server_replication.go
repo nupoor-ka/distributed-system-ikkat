@@ -2,13 +2,11 @@ package ikkat
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	pb "distributed-system-ikkat/filesystem"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"net"
@@ -20,7 +18,6 @@ import (
 	"google.golang.org/grpc"                      // normal connecting
 	"google.golang.org/grpc/codes"                // error codes
 	"google.golang.org/grpc/credentials/insecure" // no credentials for security rn
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -689,229 +686,229 @@ func main() {
 // -> apply locally
 // -> followers apply via LeaderCommit
 // //Write Updated
-func (s *server) Write_Rep(stream pb.FileService_WriteServer) error {
-	var meta *FileMeta
-	var filename string
-	var entry *FileEntry
-	var tmpFile *os.File
-	var reqID string
-	var mode pb.FileMode
-	var dirty bool
-	var clientID string
-	var tempPrimeSet FilePrimeSet
-	for {
-		req, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return status.Errorf(codes.Internal, "recv failed")
-		}
-		if meta == nil {
-			// Extract clientID once
-			ctx := stream.Context()
-			md, ok := metadata.FromIncomingContext(ctx)
-			if !ok {
-				return status.Errorf(codes.Unauthenticated, "missing metadata")
-			}
-			clientIDs := md["client-id"]
-			if len(clientIDs) == 0 {
-				return status.Errorf(codes.Unauthenticated, "client-id missing")
-			}
-			clientID = clientIDs[0]
-			reqID = req.RequestId
-			dirty = req.Dirty
-			// Cache check
-			s.mu.Lock()
-			if entryCache, ok := s.requests[req.RequestId]; ok &&
-				time.Since(entryCache.timestamp) < RequestCacheTTL {
-				resp := entryCache.response.(*pb.WriteResponse)
-				s.mu.Unlock()
-				return stream.SendAndClose(resp)
-			}
-			m, ok := s.files[req.Fd]
-			if !ok {
-				s.mu.Unlock()
-				return status.Errorf(codes.NotFound, "file not open")
-			}
-			meta = m
-			filename = meta.filename
-			client, ok := meta.clients[clientID]
-			if !ok {
-				s.mu.Unlock()
-				return status.Errorf(codes.PermissionDenied, "client not registered")
-			}
-			mode = client.mode
-			s.mu.Unlock()
-			entry = s.getFileEntry(filename)
-			meta.mu.Lock()
-			client, exists := meta.clients[clientID]
-			if !exists {
-				return status.Errorf(codes.PermissionDenied, "client not registered for this file")
-			}
-			if time.Since(client.lastSeen) > LeaseTimeout {
-				key := FileKey{
-					clientID: clientID,
-					filename: meta.filename,
-				}
-				s.mu.Lock()
-				delete(s.openMap, key)
-				s.mu.Unlock()
-				meta.mu.Lock()
-				delete(meta.clients, clientID)
-				meta.mu.Unlock()
-				return status.Errorf(codes.PermissionDenied, "lease expired")
-			}
-			// Refresh lease
-			client.lastSeen = time.Now()
-			meta.clients[clientID] = client
-			meta.mu.Unlock()
-			if dirty { // write only if dirty
-				entry.AcquireWrite()
-				// Validate
-				if mode != pb.FileMode_WRITE {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
-				}
-				if req.Version != entry.version {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Aborted, "conflict")
-				}
-				// Create temp file
-				full := filepath.Join(s.rootDir, filename)
-				tmp := full + ".tmp"
-				f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-				if err != nil {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Internal, "temp open failed")
-				}
-				tmpFile = f
-			}
-		}
-		if dirty {
-			// Refresh lease per chunk
-			meta.mu.Lock()
-			client, ok := meta.clients[clientID]
-			if ok {
-				client.lastSeen = time.Now()
-				meta.clients[clientID] = client
-			}
-			meta.mu.Unlock()
-			s.mu.Lock()
-			tempPrimeSet = make(FilePrimeSet, len(*s.filesPrimes[filename]))
-			for k, v := range *s.filesPrimes[filename] {
-				tempPrimeSet[k] = v
-			}
-			s.mu.Unlock()
-			nums := parseNumbers(req.Data)
-			unique := s.FilterUniquePrimes(nums, tempPrimeSet)
-			for _, p := range unique {
-				line := fmt.Sprintf("%d\n", p)
-				if _, err := tmpFile.WriteString(line); err != nil {
-					tmpFile.Close()
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Internal, "write failed")
-				}
-			}
-		}
-	}
-	var newVersion int32
-	if dirty {
-		if tmpFile == nil {
-			return status.Errorf(codes.InvalidArgument, "no data received")
-		}
-		tmpFile.Sync()
-		tmpFile.Close()
-		full := filepath.Join(s.rootDir, filename)
-		tmp := full + ".tmp"
-		if err := os.Rename(tmp, full); err != nil {
-			entry.ReleaseWrite()
-			return status.Errorf(codes.Internal, "rename failed")
-		}
-		var newPrimes []uint64
-		s.mu.Lock()
-		for p := range tempPrimeSet {
-			if _, exists := (*s.filesPrimes[filename])[p]; !exists {
-				newPrimes = append(newPrimes, p)
-			}
-		}
-		s.mu.Unlock()
-		var buffer bytes.Buffer
-		for _, p := range newPrimes {
-			fmt.Fprintln(&buffer, p)
-		}
-		data := buffer.Bytes()
-		s.mu.Lock() // commit tempPrimeSet to server filePrimes
-		*s.filesPrimes[filename] = tempPrimeSet
-		s.mu.Unlock()
-		dir, err := os.Open(s.rootDir) // sync dir
-		if err == nil {
-			dir.Sync()
-			dir.Close()
-		}
-		s.mu.Lock() // make entry
-		meta := s.getOrCreateFileMeta(filename)
-		newVersion := meta.version + 1
-		logEntry := LogEntry{
-			Index:    len(s.log) + 1,
-			Op:       "WRITE",
-			Filename: filename,
-			Content:  data, // IMPORTANT
-			Version:  newVersion,
-		}
-		// Append + persist
-		s.log = append(s.log, logEntry)
-		err = s.appendToDisk(logEntry)
-		s.mu.Unlock()
-		if err != nil {
-			entry.ReleaseWrite()
-			return err
-		}
-		ackCount := 1 // replication
-		commitIndex := logEntry.Index
-		for _, peer := range s.servers {
-			if peer.ID == s.id {
-				continue
-			}
-			if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
-				ackCount++
-			}
-		}
-		if ackCount < (len(s.servers)/2 + 1) { // majority check
-			entry.ReleaseWrite()
-			return status.Errorf(codes.Unavailable, "failed to reach majority")
-		}
-		s.mu.Lock() // commit
-		s.commitIndex = logEntry.Index
-		s.applyCommitted() // IMPORTANT
-		// Now update version safely
-		meta.version = newVersion
-		s.mu.Unlock()
-		entry.ReleaseWrite()
-	} else {
-		// No write -> just return current version
-		entry.mu.Lock()
-		newVersion = entry.version
-		entry.mu.Unlock()
-	}
-	resp := &pb.WriteResponse{
-		Message: "write successful",
-		Version: newVersion,
-	}
-	// Cache response
-	s.mu.Lock()
-	s.requests[reqID] = &RequestEntry{
-		response:  resp,
-		timestamp: time.Now(),
-	}
-	s.mu.Unlock()
-	return stream.SendAndClose(resp)
-}
-
-// func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
+// func (s *server) Write_Rep(stream pb.FileService_WriteServer) error {
 // 	var meta *FileMeta
 // 	var filename string
 // 	var entry *FileEntry
+// 	var tmpFile *os.File
+// 	var reqID string
+// 	var mode pb.FileMode
+// 	var dirty bool
+// 	var clientID string
+// 	var tempPrimeSet FilePrimeSet
+// 	for {
+// 		req, err := stream.Recv()
+// 		if err == io.EOF {
+// 			break
+// 		}
+// 		if err != nil {
+// 			return status.Errorf(codes.Internal, "recv failed")
+// 		}
+// 		if meta == nil {
+// 			// Extract clientID once
+// 			ctx := stream.Context()
+// 			md, ok := metadata.FromIncomingContext(ctx)
+// 			if !ok {
+// 				return status.Errorf(codes.Unauthenticated, "missing metadata")
+// 			}
+// 			clientIDs := md["client-id"]
+// 			if len(clientIDs) == 0 {
+// 				return status.Errorf(codes.Unauthenticated, "client-id missing")
+// 			}
+// 			clientID = clientIDs[0]
+// 			reqID = req.RequestId
+// 			dirty = req.Dirty
+// 			// Cache check
+// 			s.mu.Lock()
+// 			if entryCache, ok := s.requests[req.RequestId]; ok &&
+// 				time.Since(entryCache.timestamp) < RequestCacheTTL {
+// 				resp := entryCache.response.(*pb.WriteResponse)
+// 				s.mu.Unlock()
+// 				return stream.SendAndClose(resp)
+// 			}
+// 			m, ok := s.files[req.Fd]
+// 			if !ok {
+// 				s.mu.Unlock()
+// 				return status.Errorf(codes.NotFound, "file not open")
+// 			}
+// 			meta = m
+// 			filename = meta.filename
+// 			client, ok := meta.clients[clientID]
+// 			if !ok {
+// 				s.mu.Unlock()
+// 				return status.Errorf(codes.PermissionDenied, "client not registered")
+// 			}
+// 			mode = client.mode
+// 			s.mu.Unlock()
+// 			entry = s.getFileEntry(filename)
+// 			meta.mu.Lock()
+// 			client, exists := meta.clients[clientID]
+// 			if !exists {
+// 				return status.Errorf(codes.PermissionDenied, "client not registered for this file")
+// 			}
+// 			if time.Since(client.lastSeen) > LeaseTimeout {
+// 				key := FileKey{
+// 					clientID: clientID,
+// 					filename: meta.filename,
+// 				}
+// 				s.mu.Lock()
+// 				delete(s.openMap, key)
+// 				s.mu.Unlock()
+// 				meta.mu.Lock()
+// 				delete(meta.clients, clientID)
+// 				meta.mu.Unlock()
+// 				return status.Errorf(codes.PermissionDenied, "lease expired")
+// 			}
+// 			// Refresh lease
+// 			client.lastSeen = time.Now()
+// 			meta.clients[clientID] = client
+// 			meta.mu.Unlock()
+// 			if dirty { // write only if dirty
+// 				entry.AcquireWrite()
+// 				// Validate
+// 				if mode != pb.FileMode_WRITE {
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
+// 				}
+// 				if req.Version != entry.version {
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.Aborted, "conflict")
+// 				}
+// 				// Create temp file
+// 				full := filepath.Join(s.rootDir, filename)
+// 				tmp := full + ".tmp"
+// 				f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+// 				if err != nil {
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.Internal, "temp open failed")
+// 				}
+// 				tmpFile = f
+// 			}
+// 		}
+// 		if dirty {
+// 			// Refresh lease per chunk
+// 			meta.mu.Lock()
+// 			client, ok := meta.clients[clientID]
+// 			if ok {
+// 				client.lastSeen = time.Now()
+// 				meta.clients[clientID] = client
+// 			}
+// 			meta.mu.Unlock()
+// 			s.mu.Lock()
+// 			tempPrimeSet = make(FilePrimeSet, len(*s.filesPrimes[filename]))
+// 			for k, v := range *s.filesPrimes[filename] {
+// 				tempPrimeSet[k] = v
+// 			}
+// 			s.mu.Unlock()
+// 			nums := parseNumbers(req.Data)
+// 			unique := s.FilterUniquePrimes(nums, tempPrimeSet)
+// 			for _, p := range unique {
+// 				line := fmt.Sprintf("%d\n", p)
+// 				if _, err := tmpFile.WriteString(line); err != nil {
+// 					tmpFile.Close()
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.Internal, "write failed")
+// 				}
+// 			}
+// 		}
+// 	}
+// 	var newVersion int32
+// 	if dirty {
+// 		if tmpFile == nil {
+// 			return status.Errorf(codes.InvalidArgument, "no data received")
+// 		}
+// 		tmpFile.Sync()
+// 		tmpFile.Close()
+// 		full := filepath.Join(s.rootDir, filename)
+// 		tmp := full + ".tmp"
+// 		if err := os.Rename(tmp, full); err != nil {
+// 			entry.ReleaseWrite()
+// 			return status.Errorf(codes.Internal, "rename failed")
+// 		}
+// 		var newPrimes []uint64
+// 		s.mu.Lock()
+// 		for p := range tempPrimeSet {
+// 			if _, exists := (*s.filesPrimes[filename])[p]; !exists {
+// 				newPrimes = append(newPrimes, p)
+// 			}
+// 		}
+// 		s.mu.Unlock()
+// 		var buffer bytes.Buffer
+// 		for _, p := range newPrimes {
+// 			fmt.Fprintln(&buffer, p)
+// 		}
+// 		data := buffer.Bytes()
+// 		s.mu.Lock() // commit tempPrimeSet to server filePrimes
+// 		*s.filesPrimes[filename] = tempPrimeSet
+// 		s.mu.Unlock()
+// 		dir, err := os.Open(s.rootDir) // sync dir
+// 		if err == nil {
+// 			dir.Sync()
+// 			dir.Close()
+// 		}
+// 		s.mu.Lock() // make entry
+// 		meta := s.getOrCreateFileMeta(filename)
+// 		newVersion := meta.version + 1
+// 		logEntry := LogEntry{
+// 			Index:    len(s.log) + 1,
+// 			Op:       "WRITE",
+// 			Filename: filename,
+// 			Content:  data, // IMPORTANT
+// 			Version:  newVersion,
+// 		}
+// 		// Append + persist
+// 		s.log = append(s.log, logEntry)
+// 		err = s.appendToDisk(logEntry)
+// 		s.mu.Unlock()
+// 		if err != nil {
+// 			entry.ReleaseWrite()
+// 			return err
+// 		}
+// 		ackCount := 1 // replication
+// 		commitIndex := logEntry.Index
+// 		for _, peer := range s.servers {
+// 			if peer.ID == s.id {
+// 				continue
+// 			}
+// 			if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
+// 				ackCount++
+// 			}
+// 		}
+// 		if ackCount < (len(s.servers)/2 + 1) { // majority check
+// 			entry.ReleaseWrite()
+// 			return status.Errorf(codes.Unavailable, "failed to reach majority")
+// 		}
+// 		s.mu.Lock() // commit
+// 		s.commitIndex = logEntry.Index
+// 		s.applyCommitted() // IMPORTANT
+// 		// Now update version safely
+// 		meta.version = newVersion
+// 		s.mu.Unlock()
+// 		entry.ReleaseWrite()
+// 	} else {
+// 		// No write -> just return current version
+// 		entry.mu.Lock()
+// 		newVersion = entry.version
+// 		entry.mu.Unlock()
+// 	}
+// 	resp := &pb.WriteResponse{
+// 		Message: "write successful",
+// 		Version: newVersion,
+// 	}
+// 	// Cache response
+// 	s.mu.Lock()
+// 	s.requests[reqID] = &RequestEntry{
+// 		response:  resp,
+// 		timestamp: time.Now(),
+// 	}
+// 	s.mu.Unlock()
+// 	return stream.SendAndClose(resp)
+// }
+
+// // func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
+// // 	var meta *FileMeta
+// // 	var filename string
+// // 	var entry *FileEntry
 // 	var tmpFile *os.File
 // 	var reqID string
 // 	var mode pb.FileMode

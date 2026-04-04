@@ -108,7 +108,7 @@ service FileService {
     rpc Delete(DeleteRequest) returns (DeleteResponse);
 
     // Write file
-    rpc Write(stream WriteRequest) returns (WriteResponse);
+    rpc Write(WriteRequest) returns (WriteResponse);
 
     // Read file
     rpc Read(ReadRequest) returns (stream ReadResponse);

@@ -45,7 +45,7 @@ type FileServiceClient interface {
 	// Delete file
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	// Write file
-	Write(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteRequest, WriteResponse], error)
+	Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error)
 	// Read file
 	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadResponse], error)
 	// test if file in client cache is up to date
@@ -100,22 +100,19 @@ func (c *fileServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts 
 	return out, nil
 }
 
-func (c *fileServiceClient) Write(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[WriteRequest, WriteResponse], error) {
+func (c *fileServiceClient) Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &FileService_ServiceDesc.Streams[0], FileService_Write_FullMethodName, cOpts...)
+	out := new(WriteResponse)
+	err := c.cc.Invoke(ctx, FileService_Write_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WriteRequest, WriteResponse]{ClientStream: stream}
-	return x, nil
+	return out, nil
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FileService_WriteClient = grpc.ClientStreamingClient[WriteRequest, WriteResponse]
 
 func (c *fileServiceClient) Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &FileService_ServiceDesc.Streams[1], FileService_Read_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FileService_ServiceDesc.Streams[0], FileService_Read_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +156,7 @@ type FileServiceServer interface {
 	// Delete file
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	// Write file
-	Write(grpc.ClientStreamingServer[WriteRequest, WriteResponse]) error
+	Write(context.Context, *WriteRequest) (*WriteResponse, error)
 	// Read file
 	Read(*ReadRequest, grpc.ServerStreamingServer[ReadResponse]) error
 	// test if file in client cache is up to date
@@ -186,8 +183,8 @@ func (UnimplementedFileServiceServer) Close(context.Context, *CloseRequest) (*Cl
 func (UnimplementedFileServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
 }
-func (UnimplementedFileServiceServer) Write(grpc.ClientStreamingServer[WriteRequest, WriteResponse]) error {
-	return status.Error(codes.Unimplemented, "method Write not implemented")
+func (UnimplementedFileServiceServer) Write(context.Context, *WriteRequest) (*WriteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Write not implemented")
 }
 func (UnimplementedFileServiceServer) Read(*ReadRequest, grpc.ServerStreamingServer[ReadResponse]) error {
 	return status.Error(codes.Unimplemented, "method Read not implemented")
@@ -288,12 +285,23 @@ func _FileService_Delete_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_Write_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(FileServiceServer).Write(&grpc.GenericServerStream[WriteRequest, WriteResponse]{ServerStream: stream})
+func _FileService_Write_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileServiceServer).Write(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileService_Write_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileServiceServer).Write(ctx, req.(*WriteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FileService_WriteServer = grpc.ClientStreamingServer[WriteRequest, WriteResponse]
 
 func _FileService_Read_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(ReadRequest)
@@ -348,16 +356,15 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FileService_Delete_Handler,
 		},
 		{
+			MethodName: "Write",
+			Handler:    _FileService_Write_Handler,
+		},
+		{
 			MethodName: "TestAuth",
 			Handler:    _FileService_TestAuth_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "Write",
-			Handler:       _FileService_Write_Handler,
-			ClientStreams: true,
-		},
 		{
 			StreamName:    "Read",
 			Handler:       _FileService_Read_Handler,
