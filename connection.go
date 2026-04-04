@@ -7,13 +7,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 // NewServer is the ONLY way for an outsider to create a server object
-func NewServer(id string, port string, rootDir string) *server {
+func NewServer(id string, port string, rootDir string, ts int64) *server {
 	return &server{
 		id:          id,
 		role:        Backup, // Default
@@ -28,9 +29,44 @@ func NewServer(id string, port string, rootDir string) *server {
 }
 
 // function to start a server, handles the grpc initialisation portion
-func StartServer(s *server, port string) error {
+func StartServer(s *server, port string, ts int64) error {
 
 	address := ":" + port
+
+	s.servers[s.id] = ServerInfo{
+		ID:        s.id,
+		Address:   "localhost:" + port,
+		Timestamp: ts,
+		Alive:     true,
+	}
+
+	// 1. Recovery
+	if err := s.recoverFromLog(); err != nil {
+		log.Println("Recovery error:", err)
+	}
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		if s.role == Backup {
+			if err := s.RecoverFromLeader(); err != nil {
+				log.Println("Recovery failed:", err)
+			}
+		}
+	}()
+
+	time.Sleep(1 * time.Second) // allow cluster init
+	// 2. Election
+	s.primaryID = electPrimary(s.servers)
+
+	if s.id == s.primaryID {
+		s.role = Primary
+	} else {
+		s.role = Backup
+	}
+
+	// 3. Background tasks
+	go s.StartHeartbeat()
+	go s.MonitorPrimary()
 
 	// Ensure directories exist
 	inputDir := filepath.Join(s.rootDir, "input")

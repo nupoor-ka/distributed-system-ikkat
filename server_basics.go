@@ -903,7 +903,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 			return nil, status.Errorf(codes.Internal, "failed to open tmp file: %v", err)
 		}
 
-		dst, err := os.OpenFile(full, os.O_WRONLY|os.O_TRUNC, 0644)
+		dst, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			src.Close()
 			return nil, status.Errorf(codes.Internal, "failed to open destination: %v", err)
@@ -1342,7 +1342,7 @@ func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResp
 			return nil, status.Errorf(codes.Internal, "failed to open tmp file: %v", err)
 		}
 
-		dst, err := os.OpenFile(full, os.O_WRONLY|os.O_TRUNC, 0644)
+		dst, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			src.Close()
 			return nil, status.Errorf(codes.Internal, "failed to open destination: %v", err)
