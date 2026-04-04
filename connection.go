@@ -15,13 +15,15 @@ import (
 // NewServer is the ONLY way for an outsider to create a server object
 func NewServer(id string, port string, rootDir string) *server {
 	return &server{
-		id:           id,
-		role:         Backup, // Default
-		servers:      make(map[string]ServerInfo),
-		table:        make(map[string]*FileEntry),
-		requests:     make(map[string]*RequestEntry),
-		rootDir:      rootDir,
-		logFilePath:  "./log_" + id + ".txt",
+		id:          id,
+		role:        Backup, // Default
+		servers:     make(map[string]ServerInfo),
+		table:       make(map[string]*FileEntry),
+		requests:    make(map[string]*RequestEntry),
+		rootDir:     rootDir,
+		logFilePath: "./log_" + id + ".txt",
+		files:       make(map[int32]*FileMeta),
+		openMap:     make(map[FileKey]int32),
 	}
 }
 
@@ -44,10 +46,10 @@ func StartServer(s *server, port string) error {
 
 	grpcServer := grpc.NewServer()
 
-	// ✅ CLIENT API
+	// CLIENT API
 	pb.RegisterFileServiceServer(grpcServer, s)
 
-	// ✅ REPLICATION + CLUSTER
+	// REPLICATION + CLUSTER
 	pb.RegisterReplicationServiceServer(grpcServer, s)
 	pb.RegisterHeartbeatServiceServer(grpcServer, s)
 	pb.RegisterRecoveryServiceServer(grpcServer, s)

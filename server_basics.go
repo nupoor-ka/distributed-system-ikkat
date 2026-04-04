@@ -330,6 +330,9 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 	if err != nil {
 		return nil, err
 	}
+	safe = filepath.ToSlash(safe)
+	safe = strings.TrimSpace(safe)
+	safe = strings.TrimPrefix(safe, "/")
 
 	// Only output/
 	if !(strings.HasPrefix(safe, "output/") || strings.HasPrefix(safe, "output\\")) {
@@ -360,6 +363,7 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 
 	// Register file
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.files) >= MaxOpenFiles {
 		s.mu.Unlock()
 		file.Close()
@@ -394,6 +398,12 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 
 	s.files[fd] = meta
 
+	key := FileKey{
+		clientID: clientID,
+		filename: safe,
+	}
+	s.openMap[key] = fd
+
 	resp := &pb.OpenResponse{
 		Fd:      fd,
 		Version: currentVersion,
@@ -404,7 +414,6 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 		response:  resp,
 		timestamp: time.Now(),
 	}
-	s.mu.Unlock()
 
 	return resp, nil
 }
@@ -517,22 +526,18 @@ func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 
 // Opens file
 func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenResponse, error) {
-
-	// ---------- SAFETY: INIT MAPS ----------
-	s.mu.Lock()
-	if s.requests == nil {
-		s.requests = make(map[string]*RequestEntry)
-	}
-	if s.files == nil {
-		s.files = make(map[int32]*FileMeta)
-	}
-	if s.openMap == nil { // ADD THIS
-		s.openMap = make(map[FileKey]int32)
-	}
-	s.mu.Unlock()
-
-	// ---------- CACHE CHECK ----------
-	s.mu.Lock()
+	// s.mu.Lock()
+	// if s.requests == nil {
+	// 	s.requests = make(map[string]*RequestEntry)
+	// }
+	// if s.files == nil {
+	// 	s.files = make(map[int32]*FileMeta)
+	// }
+	// if s.openMap == nil { // ADD THIS
+	// 	s.openMap = make(map[FileKey]int32)
+	// }
+	// s.mu.Unlock()
+	s.mu.Lock() // cache check
 	if entry, ok := s.requests[req.RequestId]; ok &&
 		time.Since(entry.timestamp) < RequestCacheTTL {
 		resp := entry.response.(*pb.OpenResponse)
@@ -541,13 +546,10 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	}
 	s.mu.Unlock()
 
-	// ---------- SANITIZE PATH ----------
-	safe, err := sanitizePath(req.Filename)
+	safe, err := sanitizePath(req.Filename) // sanitize path
 	if err != nil {
 		return nil, err
 	}
-
-	// Normalize BEFORE using
 	safe = filepath.ToSlash(safe)
 	safe = strings.TrimSpace(safe)
 	safe = strings.TrimPrefix(safe, "/")
