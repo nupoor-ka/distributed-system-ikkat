@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 
 	// "io"
 	"os"
@@ -42,6 +43,7 @@ type CacheEntry struct { // one entry in the cache
 	Fd        int32       // file descriptor
 	Closed    bool        // if true, this can be evicted, acc LRU
 	Mode      pb.FileMode // ReadMode, WriteMode from common
+	Valid     bool        // true if cache and server version match
 }
 
 type client struct {
@@ -207,30 +209,50 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, clientID string) (*CacheEntry, error) {
 	entry, ok := c.cache[filename]
 	if ok { // found the entry in cache
-		if entry.Dirty { // client has uncommitted writes
+		if entry.Dirty { // client has uncommitted writes, meaning still open
 			return entry, nil
 		}
 		ta_resp, err := c.testAuth(ctx, filename)
 		if err != nil { // error in testauth request
 			return nil, err
 		}
+		// log.Println("entry version", entry.Version, "ta version", ta_resp.Version)
 		if entry.Version == ta_resp.Version {
+			// log.Println("the versions match")
 			if entry.Mode != mode { // trying to open in a mode other than current
 				if entry.Mode == pb.FileMode_READ {
 					return nil, status.Error(codes.FailedPrecondition, "file already open in read mode, to open in write, close file then open in write mode")
 				}
 			}
+			entry.Valid = true
+			// log.Println("marked entry valid, filename is", entry.Filename)
 			touchLRU(c, filename)
 			entry.Mode = mode
-			return entry, nil // returning same entry as cache had up-to-date version
+			req := &pb.FileRequest{ //////////
+				RequestId: generateRequestID(),
+				Filename:  filename,
+				Mode:      mode,
+				ClientId:  clientID,
+			}
+			ctx2, cancel := context.WithTimeout(ctx, rpcTimeout)
+			resp, err := c.server.Open(ctx2, req)
+			cancel()
+			if err != nil {
+				return nil, err
+			}
+			entry.Fd = resp.Fd
+			entry.Closed = false
+			return entry, nil /////////////
+		}
+	} else {
+		if len(c.cache) >= maxCacheEntries { // max 20 files open at once
+			err := evictFromCache(c)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
-	if len(c.cache) >= maxCacheEntries { // max 20 files open at once
-		err := evictFromCache(c)
-		if err != nil {
-			return nil, err
-		}
-	}
+
 	req := &pb.FileRequest{
 		RequestId: generateRequestID(),
 		Filename:  filename,
@@ -259,6 +281,7 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 	if lastErr != nil {
 		return nil, lastErr
 	}
+	// till here seems ok, maybe need to only do the rest if not in cache or not valid
 	localPath := filepath.Join(ClientCacheDir, filename)
 	os.MkdirAll(filepath.Dir(localPath), 0755) // owner rwx, grp r-x, other r-x
 	//err := os.WriteFile(localPath, resp.Data, 0644) // owner rw-, grp r--, other r--, don't need exec for this
@@ -288,10 +311,10 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 }
 
 func withClientID(ctx context.Context, clientID string) context.Context {
-	md := metadata.New(map[string]string{
-		"client-id": clientID,
-	})
-	return metadata.NewOutgoingContext(ctx, md)
+	return metadata.NewOutgoingContext(
+		ctx,
+		metadata.Pairs("clientid", clientID),
+	)
 }
 
 // send read request to server, currently always reading the whole file, doesn't allow partial reads
@@ -299,8 +322,13 @@ func withClientID(ctx context.Context, clientID string) context.Context {
 // At end returns full
 func (c *client) Read(ctx context.Context, filename string, clientID string) ([]byte, error) {
 	entry, ok := c.cache[filename]
+	log.Println("filename", filename)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "file not open")
+	}
+
+	if entry.Valid { // version up to date
+		return c.ReadFile(entry.LocalPath)
 	}
 
 	// Create/overwrite local file (use temp file for safety)
@@ -361,7 +389,7 @@ func (c *client) Read(ctx context.Context, filename string, clientID string) ([]
 }
 
 // just write to file
-func (c *client) WriteFile(ctx context.Context, filename string, data []byte) error {
+func (c *client) WriteFile(filename string, data []byte) error {
 	entry, ok := c.cache[filename]
 	if !ok {
 		return status.Error(codes.NotFound, "file not open")
@@ -374,6 +402,7 @@ func (c *client) WriteFile(ctx context.Context, filename string, data []byte) er
 		return err
 	}
 	entry.Dirty = true
+	entry.Valid = false
 	touchLRU(c, filename)
 	return nil
 }
@@ -397,6 +426,7 @@ func (c *client) AppendFile(filename string, data []byte) error {
 		return err
 	}
 	entry.Dirty = true
+	entry.Valid = false
 	touchLRU(c, filename)
 	return nil
 }
@@ -478,65 +508,34 @@ func (c *client) Close(ctx context.Context, filename string, clientID string) er
 
 	reqID := generateRequestID()
 
-	// ✅ ADD METADATA HERE
+	// ✅ Timeout
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	// ✅ Attach metadata
 	ctx = withClientID(ctx, clientID)
 
-	// Start streaming RPC
-	stream, err := c.server.Close(ctx)
-	if err != nil {
-		return err
-	}
-
+	var data []byte
 	if entry.Dirty {
-		file, err := os.Open(entry.LocalPath)
+		d, err := os.ReadFile(entry.LocalPath)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		data = d
 
-		buf := make([]byte, ChunkSize)
-
-		for {
-			n, err := file.Read(buf)
-
-			if n > 0 {
-				req := &pb.CloseRequest{
-					RequestId: reqID,
-					Fd:        entry.Fd,
-					Dirty:     true,
-					Version:   entry.Version,
-					Data:      buf[:n],
-				}
-
-				if err := stream.Send(req); err != nil {
-					return err
-				}
-			}
-
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		// No data, but still notify server
-		req := &pb.CloseRequest{
-			RequestId: reqID,
-			Fd:        entry.Fd,
-			Dirty:     false,
-			Version:   entry.Version,
-			Data:      nil,
-		}
-
-		if err := stream.Send(req); err != nil {
-			return err
-		}
+		log.Println("Sending file size:", len(data))
 	}
 
-	// Close stream and receive response
-	resp, err := stream.CloseAndRecv()
+	req := &pb.CloseRequest{
+		RequestId: reqID,
+		Fd:        entry.Fd,
+		Dirty:     entry.Dirty,
+		Version:   entry.Version,
+		Data:      data,
+	}
+
+	// ✅ Unary call (NO STREAM)
+	resp, err := c.server.Close(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -588,13 +587,10 @@ func (c *client) ReadFile(filename string) ([]byte, error) {
 	if !ok {
 		return nil, status.Error(codes.NotFound, "file not open")
 	}
-
 	data, err := os.ReadFile(entry.LocalPath)
 	if err != nil {
 		return nil, err
 	}
-
 	touchLRU(c, filename)
-
 	return data, nil
 }

@@ -103,8 +103,7 @@ service FileService {
     rpc Create(CreateRequest) returns (OpenResponse);
 
     // Close file (commit changes if dirty)
-    rpc Close(stream CloseRequest) returns (CloseResponse);
-
+    rpc Close(CloseRequest) returns (CloseResponse);
     // Delete file
     rpc Delete(DeleteRequest) returns (DeleteResponse);
 

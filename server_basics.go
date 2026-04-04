@@ -344,17 +344,18 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 	entry := s.getFileEntry(safe)
 
 	entry.AcquireWrite()
+	defer entry.ReleaseWrite()
 
 	// Create directory -- Ensure all parent dirctory exists
 	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
-		entry.ReleaseWrite()
+		// entry.ReleaseWrite()
 		return nil, err
 	}
 
 	// Create file
 	file, err := os.OpenFile(full, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0666)
 	if err != nil {
-		entry.ReleaseWrite()
+		// entry.ReleaseWrite()
 		if os.IsExist(err) {
 			return nil, status.Errorf(codes.AlreadyExists, "file exists")
 		}
@@ -368,7 +369,7 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 		s.mu.Unlock()
 		file.Close()
 		os.Remove(full)
-		entry.ReleaseWrite()
+		// entry.ReleaseWrite()
 		return nil, status.Errorf(codes.ResourceExhausted, "too many open files")
 	}
 
@@ -569,10 +570,11 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 		}
 
 		entry.AcquireReadNoPriority()
+		defer entry.ReleaseRead()
 
 		file, err := os.OpenFile(full, os.O_RDONLY, 0666)
 		if err != nil {
-			entry.ReleaseRead()
+			// entry.ReleaseRead()
 			log.Println("ERROR opening input:", full, err)
 			return nil, status.Errorf(codes.NotFound, "input file not found")
 		}
@@ -582,7 +584,7 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 
 		if len(s.files) >= MaxOpenFiles {
 			file.Close()
-			entry.ReleaseRead()
+			// entry.ReleaseRead()
 			return nil, status.Errorf(codes.ResourceExhausted, "too many open files")
 		}
 
@@ -631,11 +633,12 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	}
 
 	// ---------- OUTPUT FILE ----------
-	if mode == pb.FileMode_READ {
-		entry.AcquireRead()
-	} else {
-		entry.AcquireWrite()
-	}
+	// if mode == pb.FileMode_READ {
+	// 	entry.AcquireRead()
+
+	// } else {
+	// 	entry.AcquireWrite()
+	// }
 
 	flags := os.O_RDONLY
 	if mode == pb.FileMode_WRITE {
@@ -644,11 +647,11 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 
 	file, err := os.OpenFile(full, flags, 0666)
 	if err != nil {
-		if mode == pb.FileMode_READ {
-			entry.ReleaseRead()
-		} else {
-			entry.ReleaseWrite()
-		}
+		// if mode == pb.FileMode_READ {
+		// 	entry.ReleaseRead()
+		// } else {
+		// 	entry.ReleaseWrite()
+		// }
 		log.Println("ERROR opening output:", full, err)
 		return nil, status.Errorf(codes.NotFound, "output file not found")
 	}
@@ -658,11 +661,11 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 
 	if len(s.files) >= MaxOpenFiles {
 		file.Close()
-		if mode == pb.FileMode_READ {
-			entry.ReleaseRead()
-		} else {
-			entry.ReleaseWrite()
-		}
+		// if mode == pb.FileMode_READ {
+		// 	entry.ReleaseRead()
+		// } else {
+		// 	entry.ReleaseWrite()
+		// }
 		return nil, status.Errorf(codes.ResourceExhausted, "too many open files")
 	}
 
@@ -710,218 +713,241 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	return resp, nil
 }
 
+func getClientIDFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+
+	ids := md["clientid"] // this is []string
+	if len(ids) == 0 {
+		return ""
+	}
+
+	return ids[0] // ✅ actual string
+}
+
 // Close + Write AFS Style
-func (s *server) Close(stream pb.FileService_CloseServer) error {
+func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResponse, error) {
+	// reached server, sanity check
 
 	var meta *FileMeta
 	var filename string
 	var entry *FileEntry
 	var tmpFile *os.File
-	var reqID string
 	var mode pb.FileMode
 	var dirty bool
-	var clientID string
 	var tempPrimeSet FilePrimeSet
 
-	for {
-		req, err := stream.Recv()
-		// EOF = end of stream
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return status.Errorf(codes.Internal, "recv failed")
-		}
+	// Get clientID
+	// clientID, _ := metadata.FromIncomingContext(ctx)
+	clientID := getClientIDFromContext(ctx)
 
-		// ======================
-		// FIRST CHUNK INIT
-		// ======================
-		if meta == nil {
+	log.Println("which clientid can server see", clientID)
 
-			reqID = req.RequestId
-			dirty = req.Dirty
+	reqID := req.RequestId
+	dirty = req.Dirty
 
-			// Cache check
-			s.mu.Lock()
-			if entryCache, ok := s.requests[req.RequestId]; ok &&
-				time.Since(entryCache.timestamp) < RequestCacheTTL {
-				resp := entryCache.response.(*pb.CloseResponse)
-				s.mu.Unlock()
-				return stream.SendAndClose(resp)
-			}
+	// ======================
+	// INIT
+	// ======================
+	s.mu.Lock()
 
-			m, ok := s.files[req.Fd]
-			if !ok {
-				s.mu.Unlock()
-				return status.Errorf(codes.NotFound, "file not open")
-			}
-
-			meta = m
-			filename = meta.filename
-
-			client, ok := meta.clients[clientID]
-			if !ok {
-				// Retry-safe (already closed case)
-
-				if entryCache, ok := s.requests[req.RequestId]; ok &&
-					time.Since(entryCache.timestamp) < RequestCacheTTL {
-					resp := entryCache.response.(*pb.CloseResponse)
-					s.mu.Unlock()
-					return stream.SendAndClose(resp)
-				}
-
-				entry := s.getFileEntry(meta.filename)
-				entry.mu.Lock()
-				version := entry.version
-				entry.mu.Unlock()
-
-				resp := &pb.CloseResponse{
-					Message: "already closed",
-					Version: version,
-				}
-
-				s.requests[req.RequestId] = &RequestEntry{
-					response:  resp,
-					timestamp: time.Now(),
-				}
-
-				s.mu.Unlock()
-				return stream.SendAndClose(resp)
-			}
-
-			mode = client.mode
-			s.mu.Unlock()
-
-			entry = s.getFileEntry(filename)
-
-			// ======================
-			// ONLY IF DIRTY -> WRITE FLOW
-			// ======================
-			if dirty {
-
-				entry.AcquireWrite()
-
-				// Validate
-				if mode != pb.FileMode_WRITE {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
-				}
-
-				if req.Version != entry.version {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Aborted, "conflict")
-				}
-
-				// Create temp file
-				full := filepath.Join(s.rootDir, filename)
-				tmp := full + ".tmp"
-
-				f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-				if err != nil {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Internal, "temp open failed")
-				}
-
-				tmpFile = f
-			}
-		}
-
-		// ======================
-		// PROCESS CHUNKS ONLY IF DIRTY
-		// ======================
-		if dirty {
-
-			s.mu.Lock()
-			primeSetPtr, ok := s.filesPrimes[filename]
-			if !ok || primeSetPtr == nil { // primeset doesn't exist yet
-				tempPrimeSet = make(FilePrimeSet)
-			} else { // it does exist, make it of the required size
-				tempPrimeSet = make(FilePrimeSet, len(*primeSetPtr))
-				for k, v := range *primeSetPtr {
-					tempPrimeSet[k] = v
-				}
-			}
-			s.mu.Unlock()
-
-			nums := parseNumbers(req.Data)
-			unique := s.FilterUniquePrimes(nums, tempPrimeSet)
-
-			for _, p := range unique {
-				line := fmt.Sprintf("%d\n", p)
-				if _, err := tmpFile.WriteString(line); err != nil {
-					tmpFile.Close()
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Internal, "write failed")
-				}
-			}
-		}
+	if entryCache, ok := s.requests[reqID]; ok &&
+		time.Since(entryCache.timestamp) < RequestCacheTTL {
+		resp := entryCache.response.(*pb.CloseResponse)
+		s.mu.Unlock()
+		return resp, nil
+	}
+	m, ok := s.files[req.Fd]
+	if !ok {
+		s.mu.Unlock()
+		return nil, status.Errorf(codes.NotFound, "file not open")
 	}
 
-	var newVersion int32
+	meta = m
+	filename = meta.filename
+	client, ok := meta.clients[clientID]
+	if !ok {
+		entry := s.getFileEntry(filename)
+		entry.mu.Lock()
+		version := entry.version
+		entry.mu.Unlock()
 
-	//only check if dirty
-	if dirty && tmpFile == nil {
-		return status.Errorf(codes.InvalidArgument, "no data received")
+		resp := &pb.CloseResponse{
+			Message: "already closed",
+			Version: version,
+		}
+
+		s.requests[reqID] = &RequestEntry{
+			response:  resp,
+			timestamp: time.Now(),
+		}
+
+		s.mu.Unlock()
+		return resp, nil
 	}
 
+	mode = client.mode
+	s.mu.Unlock()
+
+	entry = s.getFileEntry(filename)
+
+	// ======================
+	// WRITE FLOW
+	// ======================
 	if dirty {
-		tmpFile.Sync()
-		tmpFile.Close()
+		// log.Println("file is open and dirty") ///
+		entry.AcquireWrite()
+		// log.Println("acquired write") ///
+		defer entry.ReleaseWrite()
+
+		if mode != pb.FileMode_WRITE {
+			return nil, status.Errorf(codes.PermissionDenied, "not opened in write mode")
+		}
+		// log.Printf("1") ///
+		if req.Version != entry.version {
+			return nil, status.Errorf(codes.Aborted, "conflict")
+		}
 
 		full := filepath.Join(s.rootDir, filename)
 		tmp := full + ".tmp"
-
-		if err := os.Rename(tmp, full); err != nil {
-			entry.ReleaseWrite()
-			return status.Errorf(codes.Internal, "rename failed")
+		// log.Printf("2") ///
+		f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "temp open failed")
 		}
-		s.mu.Lock() // commit tempprime to server file prime set
-		*s.filesPrimes[filename] = tempPrimeSet
+
+		tmpFile = f
+		// log.Printf("4") ///
+
+		s.mu.Lock()
+		if s.filesPrimes == nil {
+			s.filesPrimes = make(map[string]*FilePrimeSet)
+		}
 		s.mu.Unlock()
-		dir, err := os.Open(s.rootDir) // sync dir
-		if err == nil {
-			dir.Sync()
-			dir.Close()
-			entry.version++ // update version
-			newVersion = entry.version
-
-			s.saveVersion(filename, newVersion)
-
-			entry.ReleaseWrite()
-
+		// Load prime set
+		s.mu.Lock()
+		primeSetPtr, ok := s.filesPrimes[filename]
+		if !ok || primeSetPtr == nil {
+			tempPrimeSet = make(FilePrimeSet)
 		} else {
-			entry.mu.Lock()
-			newVersion = entry.version
-			entry.mu.Unlock()
+			tempPrimeSet = make(FilePrimeSet, len(*primeSetPtr))
+			for k, v := range *primeSetPtr {
+				tempPrimeSet[k] = v
+			}
 		}
-	} else {
-		// No write -> just return version
-		entry.mu.Lock()
-		newVersion = entry.version
-		entry.mu.Unlock()
+		// log.Printf("3") ///
+		s.mu.Unlock()
+
+		log.Println("Processing size:", len(req.Data))
+
+		nums := parseNumbers(req.Data)
+		unique := s.FilterUniquePrimes(nums, tempPrimeSet)
+
+		for _, p := range unique {
+			line := fmt.Sprintf("%d\n", p)
+			if _, err := tmpFile.WriteString(line); err != nil {
+				tmpFile.Close()
+				return nil, status.Errorf(codes.Internal, "write failed")
+			}
+		}
+
+		tmpFile.Sync()
+
+		// meta.file.Close() // moved this, got pointer error
+		// ======================
+		// COPY TMP → ORIGINAL
+		// ======================
+		tmpFile.Close()
+
+		src, err := os.Open(tmp)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to open tmp file: %v", err)
+		}
+
+		dst, err := os.OpenFile(full, os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			src.Close()
+			return nil, status.Errorf(codes.Internal, "failed to open destination: %v", err)
+		}
+
+		_, err = io.Copy(dst, src)
+		if err != nil {
+			src.Close()
+			dst.Close()
+			return nil, status.Errorf(codes.Internal, "copy failed: %v", err)
+		}
+
+		err = dst.Sync()
+		if err != nil {
+			src.Close()
+			dst.Close()
+			return nil, status.Errorf(codes.Internal, "sync failed: %v", err)
+		}
+
+		// ✅ CLOSE BEFORE DELETE
+		src.Close()
+		dst.Close()
+
+		// ✅ NOW DELETE
+		err = os.Remove(tmp)
+		if err != nil {
+			log.Println("warning: failed to remove tmp file:", err)
+		}
+
+		s.mu.Lock()
+		if ptr, ok := s.filesPrimes[filename]; ok && ptr != nil {
+			*ptr = tempPrimeSet
+		} else {
+			// initialize if missing
+			newSet := make(FilePrimeSet)
+			for k, v := range tempPrimeSet {
+				newSet[k] = v
+			}
+			s.filesPrimes[filename] = &newSet
+		}
+		s.mu.Unlock()
 	}
 
 	// ======================
-	// CLOSE FILE HANDLE
+	// VERSION
 	// ======================
-	meta.file.Close()
+	var newVersion int32
+
+	entry.mu.Lock()
+	if dirty {
+		entry.version++
+		s.saveVersion(filename, entry.version)
+	}
+	newVersion = entry.version
+	entry.mu.Unlock()
 
 	// ======================
-	// CLEANUP FD
+	// CLEANUP
 	// ======================
+	// meta.file.Close()
+	log.Println("DEBUG meta:", meta)
+	if meta == nil {
+		log.Println(" meta is NIL")
+	}
+	if meta != nil && meta.clients == nil {
+		log.Println("meta.clients is NIL")
+	}
+
 	s.mu.Lock()
-	delete(meta.clients, clientID)
+	if meta != nil && meta.clients != nil {
+		delete(meta.clients, clientID)
+	} else {
+		log.Println("skip delete: meta or clients nil")
+	}
 	s.mu.Unlock()
 
-	// ======================
-	// RESPONSE
-	// ======================
 	resp := &pb.CloseResponse{
 		Message: "closed",
 		Version: newVersion,
 	}
 
-	// Cache response
 	s.mu.Lock()
 	s.requests[reqID] = &RequestEntry{
 		response:  resp,
@@ -929,7 +955,7 @@ func (s *server) Close(stream pb.FileService_CloseServer) error {
 	}
 	s.mu.Unlock()
 
-	return stream.SendAndClose(resp)
+	return resp, nil
 }
 
 // .tmp files are incomplete and present after crash this should be removed
@@ -995,15 +1021,16 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 	ctx := stream.Context()
 
 	// Get client ID
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return status.Errorf(codes.Unauthenticated, "missing metadata")
-	}
-	clientIDs := md["client-id"]
-	if len(clientIDs) == 0 {
-		return status.Errorf(codes.Unauthenticated, "client-id missing")
-	}
-	clientID := clientIDs[0]
+	// md, ok := metadata.FromIncomingContext(ctx)
+	// if !ok {
+	// 	return status.Errorf(codes.Unauthenticated, "missing metadata")
+	// }
+	// clientIDs := md["client-id"]
+	// if len(clientIDs) == 0 {
+	// 	return status.Errorf(codes.Unauthenticated, "client-id missing")
+	// }
+	// clientID := clientIDs[0]
+	clientID := getClientIDFromContext(ctx)
 
 	// Sanitize path
 	safe, err := sanitizePath(req.Filename)
@@ -1040,7 +1067,6 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 	if !ok {
 		return status.Errorf(codes.Internal, "file metadata missing")
 	}
-
 	client, ok := meta.clients[clientID]
 	if !ok {
 		return status.Errorf(codes.PermissionDenied, "client not registered")
@@ -1353,6 +1379,9 @@ func (s *server) Write(stream pb.FileService_WriteServer) error {
 // respond to client who is checking if the version in their cache is the same as the latest on the server
 func (s *server) TestAuth(ctx context.Context, req *pb.TestAuthRequest) (*pb.TestAuthResponse, error) {
 	safe, err := sanitizePath(req.Filename)
+	safe = filepath.ToSlash(safe)
+	safe = strings.TrimSpace(safe)
+	safe = strings.TrimPrefix(safe, "/")
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid path")
 	} // doesn't look at cache, doesn't need to, not a big overhead

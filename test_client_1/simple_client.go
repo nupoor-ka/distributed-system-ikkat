@@ -81,7 +81,7 @@ func main() {
 
 	// 7. Write to the output file using your custom Write function
 	fmt.Println("Step 7: Writing primes to output...")
-	if err := c.WriteFile(ctx, outputName, []byte(primeResult)); err != nil {
+	if err := c.WriteFile(outputName, []byte(primeResult)); err != nil {
 		log.Fatalf("Failed to write output: %v", err)
 	}
 

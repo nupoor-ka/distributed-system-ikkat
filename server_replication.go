@@ -908,211 +908,211 @@ func (s *server) Write_Rep(stream pb.FileService_WriteServer) error {
 	return stream.SendAndClose(resp)
 }
 
-func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
-	var meta *FileMeta
-	var filename string
-	var entry *FileEntry
-	var tmpFile *os.File
-	var reqID string
-	var mode pb.FileMode
-	var dirty bool
-	var clientID string
-	var tempPrimeSet FilePrimeSet
-	for { // as long as you keep receiving chunks
-		req, err := stream.Recv()
-		if err == io.EOF { // stream ended, done receiving
-			break
-		}
-		if err != nil {
-			return status.Errorf(codes.Internal, "receive failed")
-		}
-		if meta == nil { // haven't set meta yet meaning if this is the first chunk, meaning the initial request
-			reqID = req.RequestId
-			dirty = req.Dirty
-			s.mu.Lock() // checking request cache
-			if entryCache, ok := s.requests[req.RequestId]; ok &&
-				time.Since(entryCache.timestamp) < RequestCacheTTL {
-				resp := entryCache.response.(*pb.CloseResponse)
-				s.mu.Unlock()
-				return stream.SendAndClose(resp) // send same response if request has already been carried out
-			}
-			m, ok := s.files[req.Fd]
-			if !ok {
-				s.mu.Unlock()
-				return status.Errorf(codes.NotFound, "file not open")
-			}
-			meta = m
-			filename = meta.filename
-			client, ok := meta.clients[clientID]
-			if !ok {
-				// Retry-safe (already closed case)
-				if entryCache, ok := s.requests[req.RequestId]; ok &&
-					time.Since(entryCache.timestamp) < RequestCacheTTL {
-					resp := entryCache.response.(*pb.CloseResponse)
-					s.mu.Unlock()
-					return stream.SendAndClose(resp)
-				}
+// func (s *server) Close_Rep(stream pb.FileService_CloseServer) error {
+// 	var meta *FileMeta
+// 	var filename string
+// 	var entry *FileEntry
+// 	var tmpFile *os.File
+// 	var reqID string
+// 	var mode pb.FileMode
+// 	var dirty bool
+// 	var clientID string
+// 	var tempPrimeSet FilePrimeSet
+// 	for { // as long as you keep receiving chunks
+// 		req, err := stream.Recv()
+// 		if err == io.EOF { // stream ended, done receiving
+// 			break
+// 		}
+// 		if err != nil {
+// 			return status.Errorf(codes.Internal, "receive failed")
+// 		}
+// 		if meta == nil { // haven't set meta yet meaning if this is the first chunk, meaning the initial request
+// 			reqID = req.RequestId
+// 			dirty = req.Dirty
+// 			s.mu.Lock() // checking request cache
+// 			if entryCache, ok := s.requests[req.RequestId]; ok &&
+// 				time.Since(entryCache.timestamp) < RequestCacheTTL {
+// 				resp := entryCache.response.(*pb.CloseResponse)
+// 				s.mu.Unlock()
+// 				return stream.SendAndClose(resp) // send same response if request has already been carried out
+// 			}
+// 			m, ok := s.files[req.Fd]
+// 			if !ok {
+// 				s.mu.Unlock()
+// 				return status.Errorf(codes.NotFound, "file not open")
+// 			}
+// 			meta = m
+// 			filename = meta.filename
+// 			client, ok := meta.clients[clientID]
+// 			if !ok {
+// 				// Retry-safe (already closed case)
+// 				if entryCache, ok := s.requests[req.RequestId]; ok &&
+// 					time.Since(entryCache.timestamp) < RequestCacheTTL {
+// 					resp := entryCache.response.(*pb.CloseResponse)
+// 					s.mu.Unlock()
+// 					return stream.SendAndClose(resp)
+// 				}
 
-				entry := s.getFileEntry(filename)
-				entry.mu.Lock()
-				version := entry.version
-				entry.mu.Unlock()
-				resp := &pb.CloseResponse{
-					Message: "already closed",
-					Version: version,
-				}
-				s.requests[req.RequestId] = &RequestEntry{
-					response:  resp,
-					timestamp: time.Now(),
-				}
-				s.mu.Unlock()
-				return stream.SendAndClose(resp)
-			}
-			mode = client.mode
-			s.mu.Unlock()
-			entry = s.getFileEntry(filename)
-			if dirty { // write only if dirty
-				entry.AcquireWrite()
-				// Validate
-				if mode != pb.FileMode_WRITE {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
-				}
-				if req.Version != entry.version {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Aborted, "conflict")
-				}
-				// Create temp file
-				full := filepath.Join(s.rootDir, filename)
-				tmp := full + ".tmp"
-				f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-				if err != nil {
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Internal, "temp open failed")
-				}
-				tmpFile = f
-			}
-		}
-		if dirty { // process chunks only if dirty
-			s.mu.Lock()
-			tempPrimeSet = make(FilePrimeSet, len(*s.filesPrimes[filename]))
-			for k, v := range *s.filesPrimes[filename] {
-				tempPrimeSet[k] = v
-			}
-			s.mu.Unlock()
-			nums := parseNumbers(req.Data)
-			unique := s.FilterUniquePrimes(nums, tempPrimeSet)
+// 				entry := s.getFileEntry(filename)
+// 				entry.mu.Lock()
+// 				version := entry.version
+// 				entry.mu.Unlock()
+// 				resp := &pb.CloseResponse{
+// 					Message: "already closed",
+// 					Version: version,
+// 				}
+// 				s.requests[req.RequestId] = &RequestEntry{
+// 					response:  resp,
+// 					timestamp: time.Now(),
+// 				}
+// 				s.mu.Unlock()
+// 				return stream.SendAndClose(resp)
+// 			}
+// 			mode = client.mode
+// 			s.mu.Unlock()
+// 			entry = s.getFileEntry(filename)
+// 			if dirty { // write only if dirty
+// 				entry.AcquireWrite()
+// 				// Validate
+// 				if mode != pb.FileMode_WRITE {
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.PermissionDenied, "not opened in write mode")
+// 				}
+// 				if req.Version != entry.version {
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.Aborted, "conflict")
+// 				}
+// 				// Create temp file
+// 				full := filepath.Join(s.rootDir, filename)
+// 				tmp := full + ".tmp"
+// 				f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+// 				if err != nil {
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.Internal, "temp open failed")
+// 				}
+// 				tmpFile = f
+// 			}
+// 		}
+// 		if dirty { // process chunks only if dirty
+// 			s.mu.Lock()
+// 			tempPrimeSet = make(FilePrimeSet, len(*s.filesPrimes[filename]))
+// 			for k, v := range *s.filesPrimes[filename] {
+// 				tempPrimeSet[k] = v
+// 			}
+// 			s.mu.Unlock()
+// 			nums := parseNumbers(req.Data)
+// 			unique := s.FilterUniquePrimes(nums, tempPrimeSet)
 
-			for _, p := range unique {
-				line := fmt.Sprintf("%d\n", p)
-				if _, err := tmpFile.WriteString(line); err != nil {
-					tmpFile.Close()
-					entry.ReleaseWrite()
-					return status.Errorf(codes.Internal, "write failed")
-				}
-			}
-		}
-	}
-	var newVersion int32
-	//only check if dirty
-	if dirty && tmpFile == nil {
-		return status.Errorf(codes.InvalidArgument, "no data received")
-	}
-	if dirty { // if the file has been changed
-		tmpFile.Sync()
-		tmpFile.Close()
-		full := filepath.Join(s.rootDir, filename)
-		tmp := full + ".tmp"
-		if err := os.Rename(tmp, full); err != nil {
-			entry.ReleaseWrite()
-			return status.Errorf(codes.Internal, "rename failed")
-		}
-		var newPrimes []uint64
-		s.mu.Lock()
-		for p := range tempPrimeSet {
-			if _, exists := (*s.filesPrimes[filename])[p]; !exists {
-				newPrimes = append(newPrimes, p)
-			}
-		}
-		s.mu.Unlock()
-		var buffer bytes.Buffer
-		for _, p := range newPrimes {
-			fmt.Fprintln(&buffer, p)
-		}
-		data := buffer.Bytes()
-		s.mu.Lock() // commit temp to filePrimes
-		*s.filesPrimes[filename] = tempPrimeSet
-		s.mu.Unlock()
-		// Sync directory
-		dir, err := os.Open(s.rootDir)
-		if err == nil {
-			dir.Sync()
-			dir.Close()
-			// Step 1: Prepare entry
-			s.mu.Lock()
-			meta := s.getOrCreateFileMeta(filename)
-			newVersion := meta.version + 1
-			logEntry := LogEntry{
-				Index:    len(s.log) + 1,
-				Op:       "WRITE",
-				Filename: filename,
-				Content:  data, // IMPORTANT
-				Version:  newVersion,
-			}
-			// Append + persist
-			s.log = append(s.log, logEntry)
-			err := s.appendToDisk(logEntry)
-			s.mu.Unlock()
+// 			for _, p := range unique {
+// 				line := fmt.Sprintf("%d\n", p)
+// 				if _, err := tmpFile.WriteString(line); err != nil {
+// 					tmpFile.Close()
+// 					entry.ReleaseWrite()
+// 					return status.Errorf(codes.Internal, "write failed")
+// 				}
+// 			}
+// 		}
+// 	}
+// 	var newVersion int32
+// 	//only check if dirty
+// 	if dirty && tmpFile == nil {
+// 		return status.Errorf(codes.InvalidArgument, "no data received")
+// 	}
+// 	if dirty { // if the file has been changed
+// 		tmpFile.Sync()
+// 		tmpFile.Close()
+// 		full := filepath.Join(s.rootDir, filename)
+// 		tmp := full + ".tmp"
+// 		if err := os.Rename(tmp, full); err != nil {
+// 			entry.ReleaseWrite()
+// 			return status.Errorf(codes.Internal, "rename failed")
+// 		}
+// 		var newPrimes []uint64
+// 		s.mu.Lock()
+// 		for p := range tempPrimeSet {
+// 			if _, exists := (*s.filesPrimes[filename])[p]; !exists {
+// 				newPrimes = append(newPrimes, p)
+// 			}
+// 		}
+// 		s.mu.Unlock()
+// 		var buffer bytes.Buffer
+// 		for _, p := range newPrimes {
+// 			fmt.Fprintln(&buffer, p)
+// 		}
+// 		data := buffer.Bytes()
+// 		s.mu.Lock() // commit temp to filePrimes
+// 		*s.filesPrimes[filename] = tempPrimeSet
+// 		s.mu.Unlock()
+// 		// Sync directory
+// 		dir, err := os.Open(s.rootDir)
+// 		if err == nil {
+// 			dir.Sync()
+// 			dir.Close()
+// 			// Step 1: Prepare entry
+// 			s.mu.Lock()
+// 			meta := s.getOrCreateFileMeta(filename)
+// 			newVersion := meta.version + 1
+// 			logEntry := LogEntry{
+// 				Index:    len(s.log) + 1,
+// 				Op:       "WRITE",
+// 				Filename: filename,
+// 				Content:  data, // IMPORTANT
+// 				Version:  newVersion,
+// 			}
+// 			// Append + persist
+// 			s.log = append(s.log, logEntry)
+// 			err := s.appendToDisk(logEntry)
+// 			s.mu.Unlock()
 
-			if err != nil {
-				entry.ReleaseWrite()
-				return err
-			}
-			ackCount := 1 // replication
-			commitIndex := logEntry.Index
-			for _, peer := range s.servers {
-				if peer.ID == s.id {
-					continue
-				}
-				if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
-					ackCount++
-				}
-			}
-			if ackCount < (len(s.servers)/2 + 1) { // majority check
-				entry.ReleaseWrite()
-				return status.Errorf(codes.Unavailable, "failed to reach majority")
-			}
-			s.mu.Lock() // commit
-			s.commitIndex = logEntry.Index
-			s.applyCommitted() // IMPORTANT
-			// Now update version safely
-			meta.version = newVersion
-			s.mu.Unlock()
-			entry.ReleaseWrite()
-		} else {
-			entry.mu.Lock()
-			newVersion = entry.version
-			entry.mu.Unlock()
-		}
-	} else {
-		entry.mu.Lock()
-		newVersion = entry.version
-		entry.mu.Unlock()
-	}
-	meta.file.Close() // close fd
-	s.mu.Lock()       // clean up fd
-	delete(meta.clients, clientID)
-	s.mu.Unlock()
-	resp := &pb.CloseResponse{ // resp to client on closing
-		Message: "closed",
-		Version: newVersion,
-	}
-	s.mu.Lock()
-	s.requests[reqID] = &RequestEntry{ // store in request cache
-		response:  resp,
-		timestamp: time.Now(),
-	}
-	s.mu.Unlock()
-	err := stream.SendAndClose(resp) // send resp, close stream, done closing the file
-	return err
-}
+// 			if err != nil {
+// 				entry.ReleaseWrite()
+// 				return err
+// 			}
+// 			ackCount := 1 // replication
+// 			commitIndex := logEntry.Index
+// 			for _, peer := range s.servers {
+// 				if peer.ID == s.id {
+// 					continue
+// 				}
+// 				if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
+// 					ackCount++
+// 				}
+// 			}
+// 			if ackCount < (len(s.servers)/2 + 1) { // majority check
+// 				entry.ReleaseWrite()
+// 				return status.Errorf(codes.Unavailable, "failed to reach majority")
+// 			}
+// 			s.mu.Lock() // commit
+// 			s.commitIndex = logEntry.Index
+// 			s.applyCommitted() // IMPORTANT
+// 			// Now update version safely
+// 			meta.version = newVersion
+// 			s.mu.Unlock()
+// 			entry.ReleaseWrite()
+// 		} else {
+// 			entry.mu.Lock()
+// 			newVersion = entry.version
+// 			entry.mu.Unlock()
+// 		}
+// 	} else {
+// 		entry.mu.Lock()
+// 		newVersion = entry.version
+// 		entry.mu.Unlock()
+// 	}
+// 	meta.file.Close() // close fd
+// 	s.mu.Lock()       // clean up fd
+// 	delete(meta.clients, clientID)
+// 	s.mu.Unlock()
+// 	resp := &pb.CloseResponse{ // resp to client on closing
+// 		Message: "closed",
+// 		Version: newVersion,
+// 	}
+// 	s.mu.Lock()
+// 	s.requests[reqID] = &RequestEntry{ // store in request cache
+// 		response:  resp,
+// 		timestamp: time.Now(),
+// 	}
+// 	s.mu.Unlock()
+// 	err := stream.SendAndClose(resp) // send resp, close stream, done closing the file
+// 	return err
+// }
