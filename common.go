@@ -18,7 +18,7 @@ const (
 	ReadWriteMode
 )
 
-const ChunkSize = 64 * 1024 // 64 KB chunk size for both client and server side streaming
+const ChunkSize = 4 * 1024 // 64 KB chunk size for both client and server side streaming
 
 func sanitizePath(p string) (string, error) {
 	safe := filepath.Clean(p)

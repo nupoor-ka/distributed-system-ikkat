@@ -97,7 +97,7 @@ func main() {
 	}
 
 	// 9. Send Read request for verification + TestAuth check
-	fmt.Println("Step 9: Verifying data with TestAuth...")
+	// fmt.Println("Step 9: Verifying data with TestAuth...")
 
 	// Verify the version via your TestAuth gRPC method
 	// authResp, err := c.TestAuth(ctx, &pb.TestAuthRequest{Filename: outputName})
@@ -117,7 +117,7 @@ func main() {
 		log.Fatalf("Final read failed: %v", err)
 	}
 
-	fmt.Printf("   Final Content: %s\n", string(finalData))
+	// fmt.Printf("   Final Content: %s\n", string(finalData))
 	// fmt.Printf("   Final Version: %d\n", authResp.Version)
 
 	if string(finalData) == primeResult {

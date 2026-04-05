@@ -206,7 +206,7 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 		Version:   resp.Version,
 		Dirty:     false,
 		Fd:        resp.Fd,
-		Closed:    false,
+		Closed:    true,
 	}
 	c.cache[filename] = entry
 	touchLRU(c, filename)

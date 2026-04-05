@@ -1,6 +1,7 @@
 package ikkat
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -751,19 +752,16 @@ func getClientIDFromContext(ctx context.Context) string {
 	if !ok {
 		return ""
 	}
-
 	ids := md["clientid"] // this is []string
 	if len(ids) == 0 {
 		return ""
 	}
-
-	return ids[0] // ✅ actual string
+	return ids[0]
 }
 
 // Close + Write AFS Style
 func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResponse, error) {
-	// reached server, sanity check
-	if s.role != Primary {
+	if s.role != Primary { // client messaged backup, shouldn't
 		if s.primaryID == "" {
 			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
 		}
@@ -776,33 +774,24 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 	var meta *FileMeta
 	var filename string
 	var entry *FileEntry
-	var tmpFile *os.File
+	// var tmpFile *os.File
 	var mode pb.FileMode
 	var dirty bool
 	var tempPrimeSet FilePrimeSet
 	var logEntry LogEntry
-
-	// Get clientID
-	// clientID, _ := metadata.FromIncomingContext(ctx)
-	clientID := getClientIDFromContext(ctx)
-
-	log.Println("which clientid can server see", clientID)
-
+	clientID := getClientIDFromContext(ctx) // clientid from context
+	// log.Println("which clientid can server see", clientID)
 	reqID := req.RequestId
 	dirty = req.Dirty
 
-	// ======================
-	// INIT
-	// ======================
-	s.mu.Lock()
-
-	if entryCache, ok := s.requests[reqID]; ok &&
+	s.mu.Lock()                                   // init
+	if entryCache, ok := s.requests[reqID]; ok && // check request cache, has the file already been closed
 		time.Since(entryCache.timestamp) < RequestCacheTTL {
 		resp := entryCache.response.(*pb.CloseResponse)
 		s.mu.Unlock()
 		return resp, nil
 	}
-	m, ok := s.files[req.Fd]
+	m, ok := s.files[req.Fd] // is the file open?
 	if !ok {
 		s.mu.Unlock()
 		return nil, status.Errorf(codes.NotFound, "file not open")
@@ -810,22 +799,20 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 
 	meta = m
 	filename = meta.filename
+	safe, _ := sanitizePath(filename)
+	safe = filepath.ToSlash(safe)
+	safe = strings.TrimSpace(safe)
+	safe = strings.TrimPrefix(safe, "/")
 	client, ok := meta.clients[clientID]
 	if !ok {
-		entry := s.getFileEntry(filename)
+		entry := s.getFileEntry(safe)
 		entry.mu.Lock()
 		version := entry.version
 		entry.mu.Unlock()
 
-		resp := &pb.CloseResponse{
-			Message: "already closed",
-			Version: version,
-		}
+		resp := &pb.CloseResponse{Message: "already closed", Version: version}
 
-		s.requests[reqID] = &RequestEntry{
-			response:  resp,
-			timestamp: time.Now(),
-		}
+		s.requests[reqID] = &RequestEntry{response: resp, timestamp: time.Now()}
 
 		s.mu.Unlock()
 		return resp, nil
@@ -834,15 +821,11 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 	mode = client.mode
 	s.mu.Unlock()
 
-	entry = s.getFileEntry(filename)
+	entry = s.getFileEntry(safe)
 
-	// ======================
-	// WRITE FLOW
-	// ======================
-	if dirty {
+	if dirty { // file as been changed, need to write
 		// log.Println("file is open and dirty") ///
 		entry.AcquireWrite()
-		// log.Println("acquired write") ///
 		defer entry.ReleaseWrite()
 
 		if mode != pb.FileMode_WRITE {
@@ -852,54 +835,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		if req.Version != entry.version {
 			return nil, status.Errorf(codes.Aborted, "conflict")
 		}
-
-		///////////////////////////////////////////////////////////////////////////////////////
-
-		logEntry := LogEntry{
-			Index:    len(s.log) + 1,
-			Op:       "WRITE",
-			Filename: filename,
-			Content:  req.Data, // full client data
-			Version:  entry.version + 1,
-		}
-
-		s.mu.Lock()
-		s.log = append(s.log, logEntry)
-		err := s.appendToDisk(logEntry)
-		s.mu.Unlock()
-
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "log persist failed")
-		}
-		ackCount := 1
-		commitIndex := logEntry.Index
-
-		for _, peer := range s.servers {
-			if peer.ID == s.id {
-				continue
-			}
-
-			if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
-				ackCount++
-			}
-		}
-
-		if ackCount < (len(s.servers)/2 + 1) {
-			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
-		}
-
-		/////////////////////////////////////////////////////////////////////////////////////
-		full := filepath.Join(s.rootDir, filename)
-		tmp := full + ".tmp"
-		// log.Printf("2") ///
-		f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "temp open failed")
-		}
-
-		tmpFile = f
-		// log.Printf("4") ///
-
+		// checking prime set for this file
 		s.mu.Lock()
 		if s.filesPrimes == nil {
 			s.filesPrimes = make(map[string]*FilePrimeSet)
@@ -907,75 +843,95 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		s.mu.Unlock()
 		// Load prime set
 		s.mu.Lock()
-		primeSetPtr, ok := s.filesPrimes[filename]
+		primeSetPtr, ok := s.filesPrimes[safe]
 		if !ok || primeSetPtr == nil {
 			tempPrimeSet = make(FilePrimeSet)
 		} else {
 			tempPrimeSet = *primeSetPtr
 		}
-		// log.Printf("3") ///
 		s.mu.Unlock()
-
 		log.Println("Processing size:", len(req.Data))
-
+		// update prime set
 		s.mu.Lock()
 		nums := parseNumbers(req.Data)
 		s.FilterUniquePrimes(nums, tempPrimeSet)
 		s.mu.Unlock()
-
+		// got the new prime set
+		// putting it into log and getting majority permission for commit
+		var buf bytes.Buffer
 		for p := range tempPrimeSet {
-			line := fmt.Sprintf("%d\n", p)
-			if _, err := tmpFile.WriteString(line); err != nil {
-				tmpFile.Close()
-				return nil, status.Errorf(codes.Internal, "write failed")
+			fmt.Fprintf(&buf, "%d\n", p)
+		}
+		data_to_log := buf.Bytes()
+		logEntry := LogEntry{
+			Index:    len(s.log) + 1,
+			Op:       "WRITE",
+			Filename: safe,
+			Content:  data_to_log, // full client data
+			Version:  entry.version + 1,
+		}
+		s.mu.Lock()
+		s.log = append(s.log, logEntry)
+		err := s.appendToDisk(logEntry)
+		s.mu.Unlock()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "log persist failed")
+		}
+		ackCount := 1
+		commitIndex := logEntry.Index
+		for _, peer := range s.servers {
+			if peer.ID == s.id {
+				continue
+			}
+			if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
+				ackCount++
 			}
 		}
-
-		tmpFile.Sync()
-
-		// meta.file.Close() // moved this, got pointer error
-		// ======================
-		// COPY TMP → ORIGINAL
-		// ======================
-		tmpFile.Close()
-
-		src, err := os.Open(tmp)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to open tmp file: %v", err)
+		alive := 0
+		for _, s := range s.servers {
+			if s.Alive {
+				alive++
+			}
 		}
-
-		dst, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			src.Close()
-			return nil, status.Errorf(codes.Internal, "failed to open destination: %v", err)
+		majority := alive/2 + 1
+		if ackCount < majority {
+			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
 		}
-
-		_, err = io.Copy(dst, src)
-		if err != nil {
-			src.Close()
-			dst.Close()
-			return nil, status.Errorf(codes.Internal, "copy failed: %v", err)
-		}
-
-		err = dst.Sync()
-		if err != nil {
-			src.Close()
-			dst.Close()
-			return nil, status.Errorf(codes.Internal, "sync failed: %v", err)
-		}
-
-		// ✅ CLOSE BEFORE DELETE
-		src.Close()
-		dst.Close()
-
-		// ✅ NOW DELETE
-		err = os.Remove(tmp)
-		if err != nil {
-			log.Println("warning: failed to remove tmp file:", err)
-		}
-
+		// writing into temp file
+		// full := filepath.Join(s.rootDir, safe)
+		// tmp := full + ".tmp"
+		// os.WriteFile(tmp, data_to_log, 0644)
+		// // writing from temp to main file
+		// src, err := os.Open(tmp) // open temp file again
+		// if err != nil {
+		// 	return nil, status.Errorf(codes.Internal, "failed to open tmp file: %v", err)
+		// }
+		// dst, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		// if err != nil {
+		// 	src.Close()
+		// 	return nil, status.Errorf(codes.Internal, "failed to open destination: %v", err)
+		// }
+		// _, err = io.Copy(dst, src)
+		// if err != nil {
+		// 	src.Close()
+		// 	dst.Close()
+		// 	return nil, status.Errorf(codes.Internal, "copy failed: %v", err)
+		// }
+		// err = dst.Sync()
+		// if err != nil {
+		// 	src.Close()
+		// 	dst.Close()
+		// 	return nil, status.Errorf(codes.Internal, "sync failed: %v", err)
+		// }
+		// src.Close()
+		// dst.Close()
+		// err = os.Remove(tmp) // closing temp file
+		// if err != nil {
+		// 	log.Println("warning: failed to remove tmp file:", err)
+		// }
+		// updating file prime set
 		s.mu.Lock()
-		if ptr, ok := s.filesPrimes[filename]; ok && ptr != nil {
+		if ptr, ok := s.filesPrimes[safe]; ok && ptr != nil {
 			*ptr = tempPrimeSet
 		} else {
 			// initialize if missing
@@ -983,32 +939,25 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 			for k, v := range tempPrimeSet {
 				newSet[k] = v
 			}
-			s.filesPrimes[filename] = &newSet
+			s.filesPrimes[safe] = &newSet
 		}
 		s.mu.Unlock()
 	}
-
-	// ======================
-	// VERSION
-	// ======================
+	// updating version
 	var newVersion int32
-
 	entry.mu.Lock()
 	if dirty {
 		entry.version++
-		s.saveVersion(filename, entry.version)
+		s.saveVersion(safe, entry.version)
 		// creates .meta file to store current version file
 	}
 	newVersion = entry.version
 	entry.mu.Unlock()
-
+	// applying commit
 	s.mu.Lock()
 	s.commitIndex = logEntry.Index
 	s.applyCommitted()
 	s.mu.Unlock()
-	// ======================
-	// CLEANUP
-	// ======================
 	// meta.file.Close()
 	log.Println("DEBUG meta:", meta)
 	if meta == nil {
@@ -1017,7 +966,6 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 	if meta != nil && meta.clients == nil {
 		log.Println("meta.clients is NIL")
 	}
-
 	s.mu.Lock()
 	if meta != nil && meta.clients != nil {
 		delete(meta.clients, clientID)
@@ -1025,12 +973,10 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		log.Println("skip delete: meta or clients nil")
 	}
 	s.mu.Unlock()
-
 	resp := &pb.CloseResponse{
 		Message: "closed",
 		Version: newVersion,
 	}
-
 	s.mu.Lock()
 	s.requests[reqID] = &RequestEntry{
 		response:  resp,
@@ -1348,7 +1294,14 @@ func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResp
 			}
 		}
 
-		if ackCount < (len(s.servers)/2 + 1) {
+		alive := 0
+		for _, s := range s.servers {
+			if s.Alive {
+				alive++
+			}
+		}
+		majority := alive/2 + 1
+		if ackCount < majority {
 			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
 		}
 

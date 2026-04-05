@@ -25,7 +25,7 @@ func main() {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	inputName := "input/input_dataset_1.txt"
+	inputName := "input/input_dataset_2.txt"
 	outputName := "output/output_1.txt"
 	client_id := "tester2"
 	fmt.Println("Step 1: Opening input file for reading...") // open input file in read mode

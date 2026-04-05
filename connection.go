@@ -111,15 +111,3 @@ func DialClient(addresses []string) (*client, *grpc.ClientConn, error) {
 	}
 	return nil, nil, fmt.Errorf("failed to connect to leader: %v", lastErr)
 }
-
-// usage for start server
-
-// usage for dial client
-// func main() {
-//     c, conn, err := DialClient("localhost:50051") // dial client
-//     if err != nil {
-//         log.Fatal(err)
-//     }
-//     defer conn.Close() // shut down the network connection on exit
-//     c.Open(context.Background(), "output/test.txt", ReadMode, "client-1") // c is client object
-// }
