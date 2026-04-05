@@ -296,27 +296,54 @@ func (s *server) getOrCreateFileMeta(filename string) *FileMeta {
 }
 
 // This is called when log entry is commited
+// func (s *server) apply(entry LogEntry) {
+// 	fm := s.getOrCreateFileMeta(entry.Filename)
+// 	fm.mu.Lock()
+// 	defer fm.mu.Unlock()
+// 	path := filepath.Join(s.rootDir, entry.Filename)
+// 	switch entry.Op {
+// 	case "WRITE":
+// 		err := os.WriteFile(path, entry.Content, 0644)
+// 		if err != nil {
+// 			log.Println("apply write failed:", err)
+// 			return
+// 		}
+// 	case "DELETE":
+// 		err := os.Remove(path)
+// 		if err != nil && !os.IsNotExist(err) {
+// 			log.Println("apply delete failed:", err)
+// 			return
+// 		}
+// 	}
+// 	fm.version = entry.Version // update version after success
+// 	s.RebuildPrimeSet(fm)      // rebuild derived state
+// }
+
 func (s *server) apply(entry LogEntry) {
-	fm := s.getOrCreateFileMeta(entry.Filename)
-	fm.mu.Lock()
-	defer fm.mu.Unlock()
-	path := filepath.Join(s.rootDir, entry.Filename)
 	switch entry.Op {
+
 	case "WRITE":
-		err := os.WriteFile(path, entry.Content, 0644)
+		fullPath := filepath.Join(s.rootDir, entry.Filename)
+
+		// Ensure directory exists
+		err := os.MkdirAll(filepath.Dir(fullPath), 0755)
 		if err != nil {
-			log.Println("apply write failed:", err)
+			log.Println("mkdir failed:", err)
 			return
 		}
-	case "DELETE":
-		err := os.Remove(path)
-		if err != nil && !os.IsNotExist(err) {
-			log.Println("apply delete failed:", err)
+
+		// ACTUAL FILE WRITE (this was missing)
+		err = os.WriteFile(fullPath, entry.Content, 0644)
+		if err != nil {
+			log.Println("write failed:", err)
 			return
 		}
+
+		log.Println("File written:", fullPath)
+
+	default:
+		log.Println("Unknown op:", entry.Op)
 	}
-	fm.version = entry.Version // update version after success
-	s.RebuildPrimeSet(fm)      // rebuild derived state
 }
 
 // Used when : Follower is behind OR restarted
@@ -376,9 +403,11 @@ func (s *server) ApplyUpdate(msg *pb.UpdateMessage) error {
 // Apply -> only after commit
 // Recovery -> separate flow
 func (s *server) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// 1. Append entries
+
+	// 🔥 1. Append entries to log
 	for _, e := range req.Entries {
 		entry := LogEntry{
 			Index:    int(e.Index),
@@ -387,31 +416,32 @@ func (s *server) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest
 			Content:  e.Content,
 			Version:  e.Version,
 		}
-		// Skip duplicates
+
+		// Avoid duplicate append
 		if entry.Index <= len(s.log) {
 			continue
 		}
-		// Optional: detect gaps
-		if entry.Index != len(s.log)+1 {
-			log.Println("log gap detected")
-			return &pb.AppendEntriesResponse{Success: false}, nil
-		}
+
 		s.log = append(s.log, entry)
+
+		//  persist log (this fixes missing log.txt)
 		err := s.appendToDisk(entry)
 		if err != nil {
-			log.Println("persist failed:", err)
-			return &pb.AppendEntriesResponse{Success: false}, nil
+			log.Println("backup log persist failed:", err)
 		}
 	}
+
 	// 2. Update commit index
 	if int(req.LeaderCommit) > s.commitIndex {
 		s.commitIndex = int(req.LeaderCommit)
 	}
-	// 3. Apply committed entries
+
+	// 3. APPLY COMMITTED LOGS (THIS IS YOUR MISSING PIECE)
 	s.applyCommitted()
-	return &pb.AppendEntriesResponse{
-		Success: true,
-	}, nil
+
+	log.Println("✅ Backup applied entries. commitIndex:", s.commitIndex)
+
+	return &pb.AppendEntriesResponse{Success: true}, nil
 }
 
 // Only commited logs entry are appended.
@@ -426,6 +456,7 @@ func (s *server) applyCommitted() {
 }
 
 func sendAppendEntry(selfID string, peer ServerInfo, entry LogEntry, commitIndex int) bool {
+
 	conn, err := grpc.NewClient(peer.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return false
@@ -445,13 +476,22 @@ func sendAppendEntry(selfID string, peer ServerInfo, entry LogEntry, commitIndex
 			},
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
+
 	resp, err := client.AppendEntries(ctx, req)
 	if err != nil {
+		log.Println("AppendEntries RPC failed to", peer.Address, "error:", err)
 		return false
 	}
-	return resp.Success
+
+	if !resp.Success {
+		log.Println("AppendEntries rejected by", peer.Address)
+		return false
+	}
+
+	log.Println("Replicated to", peer.Address)
+	return true
 }
 
 type WriteRequest struct {

@@ -459,6 +459,9 @@ func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteR
 	if err != nil {
 		return nil, err
 	}
+	safe = filepath.ToSlash(safe)
+	safe = strings.TrimSpace(safe)
+	safe = strings.TrimPrefix(safe, "/")
 
 	// Prevent deleting input files
 	if strings.HasPrefix(safe, "input/") {
@@ -778,7 +781,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 	var mode pb.FileMode
 	var dirty bool
 	var tempPrimeSet FilePrimeSet
-	var logEntry LogEntry
+	//var logEntry LogEntry
 	clientID := getClientIDFromContext(ctx) // clientid from context
 	// log.Println("which clientid can server see", clientID)
 	reqID := req.RequestId
@@ -877,58 +880,65 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "log persist failed")
 		}
-		ackCount := 1
-		commitIndex := logEntry.Index
+		ackCount := 1 // self vote
+		commitIndex := s.commitIndex
+
+		ackCh := make(chan bool, len(s.servers)-1)
+
+		// 1. Send in parallel
 		for _, peer := range s.servers {
 			if peer.ID == s.id {
 				continue
 			}
-			if sendAppendEntry(s.id, peer, logEntry, commitIndex) {
-				ackCount++
-			}
+
+			go func(p ServerInfo) {
+				ok := sendAppendEntry(s.id, p, logEntry, commitIndex)
+				ackCh <- ok
+			}(peer)
 		}
+
+		// 2. Count alive servers
 		alive := 0
-		for _, s := range s.servers {
-			if s.Alive {
+		for _, srv := range s.servers {
+			if srv.Alive {
 				alive++
 			}
 		}
 		majority := alive/2 + 1
+
+		// 3. Wait for ACKs with timeout
+		timeout := time.After(1 * time.Second)
+
+		for i := 0; i < alive-1; i++ {
+			select {
+			case ok := <-ackCh:
+				if ok {
+					ackCount++
+				}
+			case <-timeout:
+				log.Println("⚠️ Replication timeout")
+				break
+			}
+		}
+
+		// 4. Majority check
 		if ackCount < majority {
 			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
 		}
-		// writing into temp file
-		// full := filepath.Join(s.rootDir, safe)
-		// tmp := full + ".tmp"
-		// os.WriteFile(tmp, data_to_log, 0644)
-		// // writing from temp to main file
-		// src, err := os.Open(tmp) // open temp file again
-		// if err != nil {
-		// 	return nil, status.Errorf(codes.Internal, "failed to open tmp file: %v", err)
-		// }
-		// dst, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-		// if err != nil {
-		// 	src.Close()
-		// 	return nil, status.Errorf(codes.Internal, "failed to open destination: %v", err)
-		// }
-		// _, err = io.Copy(dst, src)
-		// if err != nil {
-		// 	src.Close()
-		// 	dst.Close()
-		// 	return nil, status.Errorf(codes.Internal, "copy failed: %v", err)
-		// }
-		// err = dst.Sync()
-		// if err != nil {
-		// 	src.Close()
-		// 	dst.Close()
-		// 	return nil, status.Errorf(codes.Internal, "sync failed: %v", err)
-		// }
-		// src.Close()
-		// dst.Close()
-		// err = os.Remove(tmp) // closing temp file
-		// if err != nil {
-		// 	log.Println("warning: failed to remove tmp file:", err)
-		// }
+
+		// 5. Commit locally
+		s.mu.Lock()
+		s.commitIndex = logEntry.Index
+		s.applyCommitted()
+		s.mu.Unlock()
+
+		// 6. Inform followers of commit (async, fire-and-forget)
+		for _, peer := range s.servers {
+			if peer.ID == s.id {
+				continue
+			}
+			go sendAppendEntry(s.id, peer, logEntry, s.commitIndex)
+		}
 		// updating file prime set
 		s.mu.Lock()
 		if ptr, ok := s.filesPrimes[safe]; ok && ptr != nil {
@@ -953,11 +963,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 	}
 	newVersion = entry.version
 	entry.mu.Unlock()
-	// applying commit
-	s.mu.Lock()
-	s.commitIndex = logEntry.Index
-	s.applyCommitted()
-	s.mu.Unlock()
+
 	// meta.file.Close()
 	log.Println("DEBUG meta:", meta)
 	if meta == nil {
@@ -1075,7 +1081,6 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid path")
 	}
-
 	safe = filepath.ToSlash(safe)
 	safe = strings.TrimSpace(safe)
 	safe = strings.TrimPrefix(safe, "/")
@@ -1282,7 +1287,7 @@ func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResp
 		}
 
 		ackCount := 1
-		commitIndex := logEntry.Index
+		commitIndex := s.commitIndex
 
 		for _, peer := range s.servers {
 			if peer.ID == s.id {
@@ -1303,6 +1308,19 @@ func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResp
 		majority := alive/2 + 1
 		if ackCount < majority {
 			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
+		}
+
+		s.mu.Lock()
+		s.commitIndex = logEntry.Index
+		s.applyCommitted()
+		s.mu.Unlock()
+
+		// NOW inform followers of new commit
+		for _, peer := range s.servers {
+			if peer.ID == s.id {
+				continue
+			}
+			go sendAppendEntry(s.id, peer, logEntry, s.commitIndex)
 		}
 
 		full := filepath.Join(s.rootDir, filename)
