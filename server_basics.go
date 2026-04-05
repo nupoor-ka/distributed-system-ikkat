@@ -145,7 +145,7 @@ func (s *server) rebuildVersionTable() {
 		entry := &FileEntry{
 			version: version,
 		}
-
+		entry.cond = sync.NewCond(&entry.mu) //////
 		// Reset locks (important after crash)
 		entry.activeReaders = 0
 		entry.activeWriter = false
@@ -311,11 +311,24 @@ func (s *server) getFileEntry(name string) *FileEntry {
 		entry.cond = sync.NewCond(&entry.mu)
 		s.table[name] = entry
 	}
+	if entry.cond == nil {
+		entry.cond = sync.NewCond(&entry.mu)
+	}
 	return entry
 }
 
 func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenResponse, error) {
 	// Request cache
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "leader info missing")
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	s.mu.Lock()
 	if entry, ok := s.requests[req.RequestId]; ok &&
 		time.Since(entry.timestamp) < RequestCacheTTL {
@@ -421,6 +434,16 @@ func (s *server) Create(ctx context.Context, req *pb.CreateRequest) (*pb.OpenRes
 
 func (s *server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
 	// Request cache
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "leader info missing")
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	s.mu.Lock()
 	if entry, ok := s.requests[req.RequestId]; ok &&
 		time.Since(entry.timestamp) < RequestCacheTTL {
@@ -538,6 +561,16 @@ func (s *server) Open(ctx context.Context, req *pb.FileRequest) (*pb.OpenRespons
 	// 	s.openMap = make(map[FileKey]int32)
 	// }
 	// s.mu.Unlock()
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "leader info missing")
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	s.mu.Lock() // cache check
 	if entry, ok := s.requests[req.RequestId]; ok &&
 		time.Since(entry.timestamp) < RequestCacheTTL {
@@ -730,7 +763,16 @@ func getClientIDFromContext(ctx context.Context) string {
 // Close + Write AFS Style
 func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResponse, error) {
 	// reached server, sanity check
-
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "leader info missing")
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	var meta *FileMeta
 	var filename string
 	var entry *FileEntry
@@ -1058,7 +1100,16 @@ func (s *server) startCleanupRoutine() {
 
 // Server side read
 func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) error {
-
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return status.Errorf(codes.Internal, "leader info missing")
+		}
+		return status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	ctx := stream.Context()
 
 	// Get client ID
@@ -1179,7 +1230,16 @@ func (s *server) Read(req *pb.ReadRequest, stream pb.FileService_ReadServer) err
 }
 
 func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResponse, error) {
-
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "leader info missing")
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	var meta *FileMeta
 	var filename string
 	var entry *FileEntry
@@ -1421,6 +1481,16 @@ func (s *server) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResp
 
 // respond to client who is checking if the version in their cache is the same as the latest on the server
 func (s *server) TestAuth(ctx context.Context, req *pb.TestAuthRequest) (*pb.TestAuthResponse, error) {
+	if s.role != Primary {
+		if s.primaryID == "" {
+			return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
+		}
+		leader, ok := s.servers[s.primaryID]
+		if !ok {
+			return nil, status.Errorf(codes.Internal, "leader info missing")
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "not leader: %s", leader.Address)
+	}
 	safe, err := sanitizePath(req.Filename)
 	safe = filepath.ToSlash(safe)
 	safe = strings.TrimSpace(safe)

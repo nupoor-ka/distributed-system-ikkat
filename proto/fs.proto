@@ -4,6 +4,8 @@ package filesystem;
 
 option go_package = "/filesystem";
 
+import "google/protobuf/empty.proto";
+
 // =========================
 // ENUM
 // =========================
@@ -15,6 +17,8 @@ enum FileMode {
 // =========================
 // REQUESTS
 // =========================
+
+message Empty {}
 
 message FileRequest {
     string request_id = 1;
@@ -60,6 +64,7 @@ message TestAuthRequest {
     string filename = 1;
 }
 
+
 // =========================
 // RESPONSES
 // =========================
@@ -91,6 +96,12 @@ message TestAuthResponse {
     int32 version = 1;
 }
 
+message LeaderResponse {
+  string leader_id = 1;
+  string address = 2;
+}
+
+
 // =========================
 // SERVICE
 // =========================
@@ -115,4 +126,6 @@ service FileService {
 
     // test if file in client cache is up to date
     rpc TestAuth(TestAuthRequest) returns (TestAuthResponse);
+
+    rpc GetLeader(google.protobuf.Empty) returns (LeaderResponse);
 }

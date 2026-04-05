@@ -11,6 +11,7 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -19,13 +20,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileService_Open_FullMethodName     = "/filesystem.FileService/Open"
-	FileService_Create_FullMethodName   = "/filesystem.FileService/Create"
-	FileService_Close_FullMethodName    = "/filesystem.FileService/Close"
-	FileService_Delete_FullMethodName   = "/filesystem.FileService/Delete"
-	FileService_Write_FullMethodName    = "/filesystem.FileService/Write"
-	FileService_Read_FullMethodName     = "/filesystem.FileService/Read"
-	FileService_TestAuth_FullMethodName = "/filesystem.FileService/TestAuth"
+	FileService_Open_FullMethodName      = "/filesystem.FileService/Open"
+	FileService_Create_FullMethodName    = "/filesystem.FileService/Create"
+	FileService_Close_FullMethodName     = "/filesystem.FileService/Close"
+	FileService_Delete_FullMethodName    = "/filesystem.FileService/Delete"
+	FileService_Write_FullMethodName     = "/filesystem.FileService/Write"
+	FileService_Read_FullMethodName      = "/filesystem.FileService/Read"
+	FileService_TestAuth_FullMethodName  = "/filesystem.FileService/TestAuth"
+	FileService_GetLeader_FullMethodName = "/filesystem.FileService/GetLeader"
 )
 
 // FileServiceClient is the client API for FileService service.
@@ -50,6 +52,7 @@ type FileServiceClient interface {
 	Read(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReadResponse], error)
 	// test if file in client cache is up to date
 	TestAuth(ctx context.Context, in *TestAuthRequest, opts ...grpc.CallOption) (*TestAuthResponse, error)
+	GetLeader(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LeaderResponse, error)
 }
 
 type fileServiceClient struct {
@@ -139,6 +142,16 @@ func (c *fileServiceClient) TestAuth(ctx context.Context, in *TestAuthRequest, o
 	return out, nil
 }
 
+func (c *fileServiceClient) GetLeader(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LeaderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaderResponse)
+	err := c.cc.Invoke(ctx, FileService_GetLeader_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FileServiceServer is the server API for FileService service.
 // All implementations must embed UnimplementedFileServiceServer
 // for forward compatibility.
@@ -161,6 +174,7 @@ type FileServiceServer interface {
 	Read(*ReadRequest, grpc.ServerStreamingServer[ReadResponse]) error
 	// test if file in client cache is up to date
 	TestAuth(context.Context, *TestAuthRequest) (*TestAuthResponse, error)
+	GetLeader(context.Context, *emptypb.Empty) (*LeaderResponse, error)
 	mustEmbedUnimplementedFileServiceServer()
 }
 
@@ -191,6 +205,9 @@ func (UnimplementedFileServiceServer) Read(*ReadRequest, grpc.ServerStreamingSer
 }
 func (UnimplementedFileServiceServer) TestAuth(context.Context, *TestAuthRequest) (*TestAuthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TestAuth not implemented")
+}
+func (UnimplementedFileServiceServer) GetLeader(context.Context, *emptypb.Empty) (*LeaderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLeader not implemented")
 }
 func (UnimplementedFileServiceServer) mustEmbedUnimplementedFileServiceServer() {}
 func (UnimplementedFileServiceServer) testEmbeddedByValue()                     {}
@@ -332,6 +349,24 @@ func _FileService_TestAuth_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FileService_GetLeader_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileServiceServer).GetLeader(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileService_GetLeader_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileServiceServer).GetLeader(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FileService_ServiceDesc is the grpc.ServiceDesc for FileService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -362,6 +397,10 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TestAuth",
 			Handler:    _FileService_TestAuth_Handler,
+		},
+		{
+			MethodName: "GetLeader",
+			Handler:    _FileService_GetLeader_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

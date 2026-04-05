@@ -9,6 +9,7 @@ package filesystem
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -70,6 +71,42 @@ func (FileMode) EnumDescriptor() ([]byte, []int) {
 	return file_proto_fs_proto_rawDescGZIP(), []int{0}
 }
 
+type Empty struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Empty) Reset() {
+	*x = Empty{}
+	mi := &file_proto_fs_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Empty) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Empty) ProtoMessage() {}
+
+func (x *Empty) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_fs_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Empty.ProtoReflect.Descriptor instead.
+func (*Empty) Descriptor() ([]byte, []int) {
+	return file_proto_fs_proto_rawDescGZIP(), []int{0}
+}
+
 type FileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -82,7 +119,7 @@ type FileRequest struct {
 
 func (x *FileRequest) Reset() {
 	*x = FileRequest{}
-	mi := &file_proto_fs_proto_msgTypes[0]
+	mi := &file_proto_fs_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -94,7 +131,7 @@ func (x *FileRequest) String() string {
 func (*FileRequest) ProtoMessage() {}
 
 func (x *FileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[0]
+	mi := &file_proto_fs_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -107,7 +144,7 @@ func (x *FileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileRequest.ProtoReflect.Descriptor instead.
 func (*FileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{0}
+	return file_proto_fs_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *FileRequest) GetRequestId() string {
@@ -150,7 +187,7 @@ type CreateRequest struct {
 
 func (x *CreateRequest) Reset() {
 	*x = CreateRequest{}
-	mi := &file_proto_fs_proto_msgTypes[1]
+	mi := &file_proto_fs_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +199,7 @@ func (x *CreateRequest) String() string {
 func (*CreateRequest) ProtoMessage() {}
 
 func (x *CreateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[1]
+	mi := &file_proto_fs_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +212,7 @@ func (x *CreateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRequest.ProtoReflect.Descriptor instead.
 func (*CreateRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{1}
+	return file_proto_fs_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateRequest) GetRequestId() string {
@@ -216,7 +253,7 @@ type DeleteRequest struct {
 
 func (x *DeleteRequest) Reset() {
 	*x = DeleteRequest{}
-	mi := &file_proto_fs_proto_msgTypes[2]
+	mi := &file_proto_fs_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -228,7 +265,7 @@ func (x *DeleteRequest) String() string {
 func (*DeleteRequest) ProtoMessage() {}
 
 func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[2]
+	mi := &file_proto_fs_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -241,7 +278,7 @@ func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{2}
+	return file_proto_fs_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DeleteRequest) GetRequestId() string {
@@ -271,7 +308,7 @@ type CloseRequest struct {
 
 func (x *CloseRequest) Reset() {
 	*x = CloseRequest{}
-	mi := &file_proto_fs_proto_msgTypes[3]
+	mi := &file_proto_fs_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -283,7 +320,7 @@ func (x *CloseRequest) String() string {
 func (*CloseRequest) ProtoMessage() {}
 
 func (x *CloseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[3]
+	mi := &file_proto_fs_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -296,7 +333,7 @@ func (x *CloseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseRequest.ProtoReflect.Descriptor instead.
 func (*CloseRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{3}
+	return file_proto_fs_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CloseRequest) GetRequestId() string {
@@ -347,7 +384,7 @@ type WriteRequest struct {
 
 func (x *WriteRequest) Reset() {
 	*x = WriteRequest{}
-	mi := &file_proto_fs_proto_msgTypes[4]
+	mi := &file_proto_fs_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -359,7 +396,7 @@ func (x *WriteRequest) String() string {
 func (*WriteRequest) ProtoMessage() {}
 
 func (x *WriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[4]
+	mi := &file_proto_fs_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,7 +409,7 @@ func (x *WriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteRequest.ProtoReflect.Descriptor instead.
 func (*WriteRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{4}
+	return file_proto_fs_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *WriteRequest) GetRequestId() string {
@@ -420,7 +457,7 @@ type ReadRequest struct {
 
 func (x *ReadRequest) Reset() {
 	*x = ReadRequest{}
-	mi := &file_proto_fs_proto_msgTypes[5]
+	mi := &file_proto_fs_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -432,7 +469,7 @@ func (x *ReadRequest) String() string {
 func (*ReadRequest) ProtoMessage() {}
 
 func (x *ReadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[5]
+	mi := &file_proto_fs_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -445,7 +482,7 @@ func (x *ReadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadRequest.ProtoReflect.Descriptor instead.
 func (*ReadRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{5}
+	return file_proto_fs_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReadRequest) GetFilename() string {
@@ -471,7 +508,7 @@ type TestAuthRequest struct {
 
 func (x *TestAuthRequest) Reset() {
 	*x = TestAuthRequest{}
-	mi := &file_proto_fs_proto_msgTypes[6]
+	mi := &file_proto_fs_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -483,7 +520,7 @@ func (x *TestAuthRequest) String() string {
 func (*TestAuthRequest) ProtoMessage() {}
 
 func (x *TestAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[6]
+	mi := &file_proto_fs_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -496,7 +533,7 @@ func (x *TestAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestAuthRequest.ProtoReflect.Descriptor instead.
 func (*TestAuthRequest) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{6}
+	return file_proto_fs_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TestAuthRequest) GetFilename() string {
@@ -520,7 +557,7 @@ type OpenResponse struct {
 
 func (x *OpenResponse) Reset() {
 	*x = OpenResponse{}
-	mi := &file_proto_fs_proto_msgTypes[7]
+	mi := &file_proto_fs_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -532,7 +569,7 @@ func (x *OpenResponse) String() string {
 func (*OpenResponse) ProtoMessage() {}
 
 func (x *OpenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[7]
+	mi := &file_proto_fs_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -545,7 +582,7 @@ func (x *OpenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenResponse.ProtoReflect.Descriptor instead.
 func (*OpenResponse) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{7}
+	return file_proto_fs_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OpenResponse) GetFd() int32 {
@@ -579,7 +616,7 @@ type CloseResponse struct {
 
 func (x *CloseResponse) Reset() {
 	*x = CloseResponse{}
-	mi := &file_proto_fs_proto_msgTypes[8]
+	mi := &file_proto_fs_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +628,7 @@ func (x *CloseResponse) String() string {
 func (*CloseResponse) ProtoMessage() {}
 
 func (x *CloseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[8]
+	mi := &file_proto_fs_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +641,7 @@ func (x *CloseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseResponse.ProtoReflect.Descriptor instead.
 func (*CloseResponse) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{8}
+	return file_proto_fs_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CloseResponse) GetMessage() string {
@@ -630,7 +667,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_proto_fs_proto_msgTypes[9]
+	mi := &file_proto_fs_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -642,7 +679,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[9]
+	mi := &file_proto_fs_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -655,7 +692,7 @@ func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{9}
+	return file_proto_fs_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DeleteResponse) GetMessage() string {
@@ -675,7 +712,7 @@ type WriteResponse struct {
 
 func (x *WriteResponse) Reset() {
 	*x = WriteResponse{}
-	mi := &file_proto_fs_proto_msgTypes[10]
+	mi := &file_proto_fs_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -687,7 +724,7 @@ func (x *WriteResponse) String() string {
 func (*WriteResponse) ProtoMessage() {}
 
 func (x *WriteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[10]
+	mi := &file_proto_fs_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -700,7 +737,7 @@ func (x *WriteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteResponse.ProtoReflect.Descriptor instead.
 func (*WriteResponse) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{10}
+	return file_proto_fs_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WriteResponse) GetMessage() string {
@@ -726,7 +763,7 @@ type ReadResponse struct {
 
 func (x *ReadResponse) Reset() {
 	*x = ReadResponse{}
-	mi := &file_proto_fs_proto_msgTypes[11]
+	mi := &file_proto_fs_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +775,7 @@ func (x *ReadResponse) String() string {
 func (*ReadResponse) ProtoMessage() {}
 
 func (x *ReadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[11]
+	mi := &file_proto_fs_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -751,7 +788,7 @@ func (x *ReadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadResponse.ProtoReflect.Descriptor instead.
 func (*ReadResponse) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{11}
+	return file_proto_fs_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ReadResponse) GetData() []byte {
@@ -770,7 +807,7 @@ type TestAuthResponse struct {
 
 func (x *TestAuthResponse) Reset() {
 	*x = TestAuthResponse{}
-	mi := &file_proto_fs_proto_msgTypes[12]
+	mi := &file_proto_fs_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +819,7 @@ func (x *TestAuthResponse) String() string {
 func (*TestAuthResponse) ProtoMessage() {}
 
 func (x *TestAuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_fs_proto_msgTypes[12]
+	mi := &file_proto_fs_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +832,7 @@ func (x *TestAuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestAuthResponse.ProtoReflect.Descriptor instead.
 func (*TestAuthResponse) Descriptor() ([]byte, []int) {
-	return file_proto_fs_proto_rawDescGZIP(), []int{12}
+	return file_proto_fs_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TestAuthResponse) GetVersion() int32 {
@@ -805,12 +842,65 @@ func (x *TestAuthResponse) GetVersion() int32 {
 	return 0
 }
 
+type LeaderResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeaderId      string                 `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaderResponse) Reset() {
+	*x = LeaderResponse{}
+	mi := &file_proto_fs_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaderResponse) ProtoMessage() {}
+
+func (x *LeaderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_fs_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaderResponse.ProtoReflect.Descriptor instead.
+func (*LeaderResponse) Descriptor() ([]byte, []int) {
+	return file_proto_fs_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LeaderResponse) GetLeaderId() string {
+	if x != nil {
+		return x.LeaderId
+	}
+	return ""
+}
+
+func (x *LeaderResponse) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
 var File_proto_fs_proto protoreflect.FileDescriptor
 
 const file_proto_fs_proto_rawDesc = "" +
 	"\n" +
 	"\x0eproto/fs.proto\x12\n" +
-	"filesystem\"\x8e\x01\n" +
+	"filesystem\x1a\x1bgoogle/protobuf/empty.proto\"\a\n" +
+	"\x05Empty\"\x8e\x01\n" +
 	"\vFileRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1a\n" +
@@ -861,10 +951,13 @@ const file_proto_fs_proto_rawDesc = "" +
 	"\fReadResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\",\n" +
 	"\x10TestAuthResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x05R\aversion*\x1f\n" +
+	"\aversion\x18\x01 \x01(\x05R\aversion\"G\n" +
+	"\x0eLeaderResponse\x12\x1b\n" +
+	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress*\x1f\n" +
 	"\bFileMode\x12\b\n" +
 	"\x04READ\x10\x00\x12\t\n" +
-	"\x05WRITE\x10\x012\xc8\x03\n" +
+	"\x05WRITE\x10\x012\x89\x04\n" +
 	"\vFileService\x129\n" +
 	"\x04Open\x12\x17.filesystem.FileRequest\x1a\x18.filesystem.OpenResponse\x12=\n" +
 	"\x06Create\x12\x19.filesystem.CreateRequest\x1a\x18.filesystem.OpenResponse\x12<\n" +
@@ -872,7 +965,8 @@ const file_proto_fs_proto_rawDesc = "" +
 	"\x06Delete\x12\x19.filesystem.DeleteRequest\x1a\x1a.filesystem.DeleteResponse\x12<\n" +
 	"\x05Write\x12\x18.filesystem.WriteRequest\x1a\x19.filesystem.WriteResponse\x12;\n" +
 	"\x04Read\x12\x17.filesystem.ReadRequest\x1a\x18.filesystem.ReadResponse0\x01\x12E\n" +
-	"\bTestAuth\x12\x1b.filesystem.TestAuthRequest\x1a\x1c.filesystem.TestAuthResponseB\rZ\v/filesystemb\x06proto3"
+	"\bTestAuth\x12\x1b.filesystem.TestAuthRequest\x1a\x1c.filesystem.TestAuthResponse\x12?\n" +
+	"\tGetLeader\x12\x16.google.protobuf.Empty\x1a\x1a.filesystem.LeaderResponseB\rZ\v/filesystemb\x06proto3"
 
 var (
 	file_proto_fs_proto_rawDescOnce sync.Once
@@ -887,42 +981,47 @@ func file_proto_fs_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_fs_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_fs_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_fs_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_proto_fs_proto_goTypes = []any{
 	(FileMode)(0),            // 0: filesystem.FileMode
-	(*FileRequest)(nil),      // 1: filesystem.FileRequest
-	(*CreateRequest)(nil),    // 2: filesystem.CreateRequest
-	(*DeleteRequest)(nil),    // 3: filesystem.DeleteRequest
-	(*CloseRequest)(nil),     // 4: filesystem.CloseRequest
-	(*WriteRequest)(nil),     // 5: filesystem.WriteRequest
-	(*ReadRequest)(nil),      // 6: filesystem.ReadRequest
-	(*TestAuthRequest)(nil),  // 7: filesystem.TestAuthRequest
-	(*OpenResponse)(nil),     // 8: filesystem.OpenResponse
-	(*CloseResponse)(nil),    // 9: filesystem.CloseResponse
-	(*DeleteResponse)(nil),   // 10: filesystem.DeleteResponse
-	(*WriteResponse)(nil),    // 11: filesystem.WriteResponse
-	(*ReadResponse)(nil),     // 12: filesystem.ReadResponse
-	(*TestAuthResponse)(nil), // 13: filesystem.TestAuthResponse
+	(*Empty)(nil),            // 1: filesystem.Empty
+	(*FileRequest)(nil),      // 2: filesystem.FileRequest
+	(*CreateRequest)(nil),    // 3: filesystem.CreateRequest
+	(*DeleteRequest)(nil),    // 4: filesystem.DeleteRequest
+	(*CloseRequest)(nil),     // 5: filesystem.CloseRequest
+	(*WriteRequest)(nil),     // 6: filesystem.WriteRequest
+	(*ReadRequest)(nil),      // 7: filesystem.ReadRequest
+	(*TestAuthRequest)(nil),  // 8: filesystem.TestAuthRequest
+	(*OpenResponse)(nil),     // 9: filesystem.OpenResponse
+	(*CloseResponse)(nil),    // 10: filesystem.CloseResponse
+	(*DeleteResponse)(nil),   // 11: filesystem.DeleteResponse
+	(*WriteResponse)(nil),    // 12: filesystem.WriteResponse
+	(*ReadResponse)(nil),     // 13: filesystem.ReadResponse
+	(*TestAuthResponse)(nil), // 14: filesystem.TestAuthResponse
+	(*LeaderResponse)(nil),   // 15: filesystem.LeaderResponse
+	(*emptypb.Empty)(nil),    // 16: google.protobuf.Empty
 }
 var file_proto_fs_proto_depIdxs = []int32{
 	0,  // 0: filesystem.FileRequest.mode:type_name -> filesystem.FileMode
 	0,  // 1: filesystem.CreateRequest.mode:type_name -> filesystem.FileMode
-	1,  // 2: filesystem.FileService.Open:input_type -> filesystem.FileRequest
-	2,  // 3: filesystem.FileService.Create:input_type -> filesystem.CreateRequest
-	4,  // 4: filesystem.FileService.Close:input_type -> filesystem.CloseRequest
-	3,  // 5: filesystem.FileService.Delete:input_type -> filesystem.DeleteRequest
-	5,  // 6: filesystem.FileService.Write:input_type -> filesystem.WriteRequest
-	6,  // 7: filesystem.FileService.Read:input_type -> filesystem.ReadRequest
-	7,  // 8: filesystem.FileService.TestAuth:input_type -> filesystem.TestAuthRequest
-	8,  // 9: filesystem.FileService.Open:output_type -> filesystem.OpenResponse
-	8,  // 10: filesystem.FileService.Create:output_type -> filesystem.OpenResponse
-	9,  // 11: filesystem.FileService.Close:output_type -> filesystem.CloseResponse
-	10, // 12: filesystem.FileService.Delete:output_type -> filesystem.DeleteResponse
-	11, // 13: filesystem.FileService.Write:output_type -> filesystem.WriteResponse
-	12, // 14: filesystem.FileService.Read:output_type -> filesystem.ReadResponse
-	13, // 15: filesystem.FileService.TestAuth:output_type -> filesystem.TestAuthResponse
-	9,  // [9:16] is the sub-list for method output_type
-	2,  // [2:9] is the sub-list for method input_type
+	2,  // 2: filesystem.FileService.Open:input_type -> filesystem.FileRequest
+	3,  // 3: filesystem.FileService.Create:input_type -> filesystem.CreateRequest
+	5,  // 4: filesystem.FileService.Close:input_type -> filesystem.CloseRequest
+	4,  // 5: filesystem.FileService.Delete:input_type -> filesystem.DeleteRequest
+	6,  // 6: filesystem.FileService.Write:input_type -> filesystem.WriteRequest
+	7,  // 7: filesystem.FileService.Read:input_type -> filesystem.ReadRequest
+	8,  // 8: filesystem.FileService.TestAuth:input_type -> filesystem.TestAuthRequest
+	16, // 9: filesystem.FileService.GetLeader:input_type -> google.protobuf.Empty
+	9,  // 10: filesystem.FileService.Open:output_type -> filesystem.OpenResponse
+	9,  // 11: filesystem.FileService.Create:output_type -> filesystem.OpenResponse
+	10, // 12: filesystem.FileService.Close:output_type -> filesystem.CloseResponse
+	11, // 13: filesystem.FileService.Delete:output_type -> filesystem.DeleteResponse
+	12, // 14: filesystem.FileService.Write:output_type -> filesystem.WriteResponse
+	13, // 15: filesystem.FileService.Read:output_type -> filesystem.ReadResponse
+	14, // 16: filesystem.FileService.TestAuth:output_type -> filesystem.TestAuthResponse
+	15, // 17: filesystem.FileService.GetLeader:output_type -> filesystem.LeaderResponse
+	10, // [10:18] is the sub-list for method output_type
+	2,  // [2:10] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -939,7 +1038,7 @@ func file_proto_fs_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_fs_proto_rawDesc), len(file_proto_fs_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

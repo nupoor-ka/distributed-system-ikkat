@@ -5,11 +5,8 @@ import (
 	"context"
 	pb "distributed-system-ikkat/filesystem"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
-	"math"
-	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"                // error codes
 	"google.golang.org/grpc/credentials/insecure" // no credentials for security rn
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // File Meta is same for all server
@@ -94,10 +92,11 @@ func (s *server) SendHeartbeat(ctx context.Context, req *pb.Heartbeat) (*pb.Hear
 	}
 	//Correct leader comparison
 	if s.primaryID != "" {
-		current := s.servers[s.primaryID]
-		incoming := s.servers[req.PrimaryId]
+		currentLeader := s.primaryID
+		incomingLeader := req.PrimaryId
 
-		if incoming.Timestamp < current.Timestamp {
+		if incomingLeader > currentLeader {
+			// reject weaker leader
 			return &pb.HeartbeatResponse{Success: false}, nil
 		}
 	}
@@ -160,13 +159,17 @@ func (s *server) MonitorPrimary() {
 		if time.Since(s.lastHeartbeat) > PrimaryFailedTimeout { // primary hasn't contacted since some time
 			fmt.Println("Primary failed, electing new leader")
 			oldLeader := s.primaryID
-			srv := s.servers[oldLeader]
-			srv.Alive = false
-			s.servers[oldLeader] = srv
+			if srv, ok := s.servers[oldLeader]; ok {
+				srv.Alive = false
+				s.servers[oldLeader] = srv
+			}
 			newLeader := electPrimary(s.servers)
 			s.primaryID = newLeader
 			if s.id == newLeader {
+				s.role = Primary
 				fmt.Println("I am new primary")
+			} else {
+				s.role = Backup
 			}
 		}
 		s.mu.Unlock()
@@ -175,20 +178,32 @@ func (s *server) MonitorPrimary() {
 
 // Backup keep track of var lastHeartbeat time.Time and also notes primary
 func (s *server) OnHeartbeat(hb Heartbeat) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.primaryID = hb.PrimaryID
 	s.lastHeartbeat = time.Now()
+	if s.primaryID == "" || hb.PrimaryID < s.primaryID {
+		s.primaryID = hb.PrimaryID
+	}
+	if s.id == s.primaryID { // if you are the primary
+		s.role = Primary
+	} else { // if you are not the primary update your role, jic, required if two think they are primary
+		s.role = Backup
+	}
+	if srv, ok := s.servers[hb.PrimaryID]; ok {
+		srv.Alive = true
+		s.servers[hb.PrimaryID] = srv
+	}
 }
 
 // Elect Primary
 func electPrimary(servers map[string]ServerInfo) string {
-	min := int64(math.MaxInt64)
-	var leader string
-	for _, s := range servers { // check all servers
-		if !s.Alive { // if this one is alive
+	leader := ""
+	for _, s := range servers {
+		if !s.Alive {
 			continue
 		}
-		if s.Timestamp < min { // choose the one with the smallest timestamp
-			min = s.Timestamp
+		if leader == "" || s.ID < leader {
 			leader = s.ID
 		}
 	}
@@ -196,34 +211,34 @@ func electPrimary(servers map[string]ServerInfo) string {
 }
 
 // Checking primary is alive
-func (s *server) CheckPrimaryAlive() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.id == s.primaryID { // primary doesn't do this
-		return
-	}
-	if time.Since(s.lastHeartbeat) <= PrimaryFailedTimeout { // primary recently sent a message, alive
-		return
-	}
-	log.Println("Primary failed. Electing new leader...")
-	oldLeader := s.primaryID
-	if srv, ok := s.servers[oldLeader]; ok {
-		srv.Alive = false // marking prev primary dead
-		s.servers[oldLeader] = srv
-	}
-	newLeader := electPrimary(s.servers)
-	if newLeader == "" {
-		log.Println("No alive servers available")
-		return
-	}
-	s.primaryID = newLeader
-	if s.id == newLeader {
-		s.role = Primary
-		log.Println("I am the new primary")
-	} else {
-		s.role = Backup
-	}
-}
+// func (s *server) CheckPrimaryAlive() {
+// 	s.mu.Lock()
+// 	defer s.mu.Unlock()
+// 	if s.id == s.primaryID { // primary doesn't do this
+// 		return
+// 	}
+// 	if time.Since(s.lastHeartbeat) <= PrimaryFailedTimeout { // primary recently sent a message, alive
+// 		return
+// 	}
+// 	log.Println("Primary failed. Electing new leader...")
+// 	oldLeader := s.primaryID
+// 	if srv, ok := s.servers[oldLeader]; ok {
+// 		srv.Alive = false // marking prev primary dead
+// 		s.servers[oldLeader] = srv
+// 	}
+// 	newLeader := electPrimary(s.servers)
+// 	if newLeader == "" {
+// 		log.Println("No alive servers available")
+// 		return
+// 	}
+// 	s.primaryID = newLeader
+// 	if s.id == newLeader {
+// 		s.role = Primary
+// 		log.Println("I am the new primary")
+// 	} else {
+// 		s.role = Backup
+// 	}
+// }
 
 // appending json logs in log file
 // {"Index":1,"Op":"WRITE","Filename":"file.txt","Content":"...","Version":1}
@@ -555,6 +570,7 @@ func (s *server) RequestRecovery(ctx context.Context, req *pb.RecoveryRequest) (
 func (s *server) RecoverFromLeader() error {
 	s.mu.Lock()
 	leader, ok := s.servers[s.primaryID]
+	log.Println("primary id", s.primaryID)
 	s.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("leader not found")
@@ -589,94 +605,115 @@ func (s *server) Init() {
 	s.lastHeartbeat = time.Now()
 }
 
-// Main function
-func main() {
-	// ----------- 1. Parse CLI args -----------
-	id := flag.String("id", "", "server id")
-	port := flag.String("port", "5000", "port")
-	flag.Parse()
-	if *id == "" {
-		log.Fatal("Server ID required")
+func (s *server) GetLeader(ctx context.Context, _ *emptypb.Empty) (*pb.LeaderResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 🔥 Case 1: no leader yet
+	if s.primaryID == "" {
+		return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
 	}
-	address := "localhost:" + *port
-	// ----------- 2. Setup directories -----------
-	rootDir := "./data_" + *id
-	logFile := "./log_" + *id + ".txt"
-	os.MkdirAll(rootDir, os.ModePerm)
-	// ----------- 3. Initialize server -----------
-	s := &server{
-		id:          *id,
-		role:        Backup, // use enum
-		primaryID:   "",
-		servers:     make(map[string]ServerInfo),
-		files:       make(map[int32]*FileMeta),
-		table:       make(map[string]*FileEntry),
-		requests:    make(map[string]*RequestEntry),
-		openMap:     make(map[FileKey]int32),
-		rootDir:     rootDir,
-		logFilePath: logFile,
+
+	// 🔥 Case 2: leader not found in map
+	leader, ok := s.servers[s.primaryID]
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "leader info missing")
 	}
-	s.Init() //  important
-	// ----------- 4. Load cluster config -----------
-	s.servers = map[string]ServerInfo{
-		"1": {ID: "1", Address: "localhost:5001", Timestamp: 100, Alive: true},
-		"2": {ID: "2", Address: "localhost:5002", Timestamp: 200, Alive: true},
-		"3": {ID: "3", Address: "localhost:5003", Timestamp: 300, Alive: true},
-	}
-	// ----------- 5. Recover from disk log -----------
-	err := s.recoverFromLog()
-	if err != nil {
-		log.Println("Recovery error:", err)
-	}
-	// rebuild derived state
-	s.RecoverFromLeader()
-	// ----------- 6. Elect primary -----------
-	primaryID := electPrimary(s.servers)
-	s.primaryID = primaryID
-	if s.id == primaryID {
-		s.role = Primary
-	} else {
-		s.role = Backup
-	}
-	log.Printf("Server %s started as %v\n", s.id, s.role)
-	// ----------- 7. gRPC server setup -----------
-	lis, err := net.Listen("tcp", address)
-	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
-	}
-	grpcServer := grpc.NewServer()
-	//  MUST register all services
-	pb.RegisterReplicationServiceServer(grpcServer, s)
-	pb.RegisterHeartbeatServiceServer(grpcServer, s)
-	pb.RegisterRecoveryServiceServer(grpcServer, s)
-	// ----------- 8. Background processes -----------
-	// Leader heartbeats
-	go s.StartHeartbeat()
-	// Failure detection + election
-	go s.MonitorPrimary()
-	// Recovery from leader (if backup)
-	go func() {
-		time.Sleep(2 * time.Second)
-		if s.role == Backup {
-			err := s.RecoverFromLeader()
-			if err != nil {
-				log.Println("Recovery from leader failed:", err)
-			} else {
-				log.Println("Recovery from leader successful")
-			}
-		}
-	}()
-	go s.cleanupRequests()
-	go s.cleanupLeases()
-	go s.startCleanupRoutine()
-	s.rebuildVersionTable()
-	// s.cleanupTempFiles()
-	// ----------- 9. Start server -----------
-	log.Println("Listening on", address)
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("Failed to serve: %v", err)
-	}
+
+	return &pb.LeaderResponse{
+		LeaderId: s.primaryID,
+		Address:  leader.Address,
+	}, nil
 }
+
+// // Main function
+// func main() {
+// 	// ----------- 1. Parse CLI args -----------
+// 	id := flag.String("id", "", "server id")
+// 	port := flag.String("port", "5000", "port")
+// 	flag.Parse()
+// 	if *id == "" {
+// 		log.Fatal("Server ID required")
+// 	}
+// 	address := "localhost:" + *port
+// 	// ----------- 2. Setup directories -----------
+// 	rootDir := "./data_" + *id
+// 	logFile := "./log_" + *id + ".txt"
+// 	os.MkdirAll(rootDir, os.ModePerm)
+// 	// ----------- 3. Initialize server -----------
+// 	s := &server{
+// 		id:          *id,
+// 		role:        Backup, // use enum
+// 		primaryID:   "",
+// 		servers:     make(map[string]ServerInfo),
+// 		files:       make(map[int32]*FileMeta),
+// 		table:       make(map[string]*FileEntry),
+// 		requests:    make(map[string]*RequestEntry),
+// 		openMap:     make(map[FileKey]int32),
+// 		rootDir:     rootDir,
+// 		logFilePath: logFile,
+// 	}
+// 	s.Init() //  important
+// 	// ----------- 4. Load cluster config -----------
+// 	s.servers = map[string]ServerInfo{
+// 		"1": {ID: "1", Address: "localhost:5001", Timestamp: 100, Alive: true},
+// 		"2": {ID: "2", Address: "localhost:5002", Timestamp: 200, Alive: true},
+// 		"3": {ID: "3", Address: "localhost:5003", Timestamp: 300, Alive: true},
+// 	}
+// 	// ----------- 5. Recover from disk log -----------
+// 	err := s.recoverFromLog()
+// 	if err != nil {
+// 		log.Println("Recovery error:", err)
+// 	}
+// 	// rebuild derived state
+// 	s.RecoverFromLeader()
+// 	// ----------- 6. Elect primary -----------
+// 	primaryID := electPrimary(s.servers)
+// 	s.primaryID = primaryID
+// 	if s.id == primaryID {
+// 		s.role = Primary
+// 	} else {
+// 		s.role = Backup
+// 	}
+// 	log.Printf("Server %s started as %v\n", s.id, s.role)
+// 	// ----------- 7. gRPC server setup -----------
+// 	lis, err := net.Listen("tcp", address)
+// 	if err != nil {
+// 		log.Fatalf("Failed to listen: %v", err)
+// 	}
+// 	grpcServer := grpc.NewServer()
+// 	//  MUST register all services
+// 	pb.RegisterReplicationServiceServer(grpcServer, s)
+// 	pb.RegisterHeartbeatServiceServer(grpcServer, s)
+// 	pb.RegisterRecoveryServiceServer(grpcServer, s)
+// 	// ----------- 8. Background processes -----------
+// 	// Leader heartbeats
+// 	go s.StartHeartbeat()
+// 	// Failure detection + election
+// 	go s.MonitorPrimary()
+// 	// Recovery from leader (if backup)
+// 	go func() {
+// 		time.Sleep(2 * time.Second)
+// 		if s.role == Backup {
+// 			err := s.RecoverFromLeader()
+// 			if err != nil {
+// 				log.Println("Recovery from leader failed:", err)
+// 			} else {
+// 				log.Println("Recovery from leader successful")
+// 			}
+// 		}
+// 	}()
+// 	go s.cleanupRequests()
+// 	go s.cleanupLeases()
+// 	go s.startCleanupRoutine()
+// 	s.rebuildVersionTable()
+// 	// s.cleanupTempFiles()
+// 	// ----------- 9. Start server -----------
+// 	log.Println("Listening on", address)
+// 	if err := grpcServer.Serve(lis); err != nil {
+// 		log.Fatalf("Failed to serve: %v", err)
+// 	}
+// }
 
 // Client -> Leader
 // -> append log

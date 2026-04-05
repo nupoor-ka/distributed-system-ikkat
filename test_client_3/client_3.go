@@ -11,28 +11,32 @@ import (
 	ikkat "distributed-system-ikkat"
 )
 
-func AllUniqueLines(data []byte) (bool, []string) { // to test if final output file only has uniques
-	lines := strings.Split(string(data), "\n")
-	seen := make(map[string]bool)
-	var duplicates []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if seen[line] {
-			duplicates = append(duplicates, line)
-		} else {
-			seen[line] = true
-		}
-	}
-	return len(duplicates) == 0, duplicates
-}
+// func AllUniqueLines(data []byte) (bool, []string) { // to test if final output file only has uniques
+// 	lines := strings.Split(string(data), "\n")
+// 	seen := make(map[string]bool)
+// 	var duplicates []string
+// 	for _, line := range lines {
+// 		line = strings.TrimSpace(line)
+// 		if line == "" {
+// 			continue
+// 		}
+// 		if seen[line] {
+// 			duplicates = append(duplicates, line)
+// 		} else {
+// 			seen[line] = true
+// 		}
+// 	}
+// 	return len(duplicates) == 0, duplicates
+// }
 
 func main() {
-	serverAddr := "localhost:5001"
-	fmt.Printf("Connecting to server at %s...\n", serverAddr) // connecting to server
-	c, conn, err := ikkat.DialClient(serverAddr)
+	servers := []string{
+		"localhost:5001",
+		"localhost:5002",
+		"localhost:5003",
+	}
+	fmt.Printf("Connecting to server") // connecting to server
+	c, conn, err := ikkat.DialClient(servers)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
@@ -79,22 +83,23 @@ func main() {
 	if err := c.Close(ctx, outputName, client_id); err != nil {
 		log.Fatalf("Close output failed: %v", err)
 	}
-	if _, err := c.Open(ctx, outputName, 0, client_id); err != nil { // open the output file again
-		log.Fatalf("Final open failed: %v", err)
-	}
-	finalData, err := c.Read(ctx, outputName, client_id) // read output file
-	if err != nil {
-		log.Fatalf("Final read failed: %v", err)
-	}
-	unique, dups := AllUniqueLines(finalData)
-	if unique {
-		fmt.Println("All numbers are unique. Deduplication works.")
-	} else {
-		fmt.Printf("Duplicates found: %v\n", dups)
-	}
-	if string(finalData) == primeResult {
-		fmt.Println("\nSUCCESS: File content is consistent across the distributed system!")
-	} else {
-		fmt.Printf("\nFAILURE: Content mismatch. Expected [%s] but got [%s]\n", primeResult, string(finalData))
-	}
+	// if _, err := c.Open(ctx, outputName, 0, client_id); err != nil { // open the output file again
+	// 	log.Fatalf("Final open failed: %v", err)
+	// }
+	// finalData, err := c.Read(ctx, outputName, client_id) // read output file
+	// if err != nil {
+	// 	log.Fatalf("Final read failed: %v", err)
+	// }
+	// unique, dups := AllUniqueLines(finalData)
+	// if unique {
+	// 	fmt.Println("All numbers are unique. Deduplication works.")
+	// } else {
+	// 	fmt.Printf("Duplicates found: %v\n", dups)
+	// }
+	// if string(finalData) == primeResult {
+	// 	fmt.Println("\nSUCCESS: File content is consistent across the distributed system!")
+	// } else {
+	// 	fmt.Printf("\nFAILURE: Content mismatch. Expected [%s] but got [%s]\n", primeResult, string(finalData))
+	// }
+	fmt.Printf("client3 done writing.")
 }

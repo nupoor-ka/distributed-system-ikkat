@@ -12,11 +12,15 @@ import (
 )
 
 func main() {
-	serverAddr := "localhost:5001" // Update this to your server's address
+	servers := []string{
+		"localhost:5001",
+		"localhost:5002",
+		"localhost:5003",
+	}
 
 	// 1. Connect to Server using your DialClient function
-	fmt.Printf("Connecting to server at %s...\n", serverAddr)
-	c, conn, err := ikkat.DialClient(serverAddr)
+	fmt.Printf("Connecting to server")
+	c, conn, err := ikkat.DialClient(servers)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}

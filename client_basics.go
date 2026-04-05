@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 
 	// "io"
 	"os"
@@ -17,7 +18,9 @@ import (
 
 	pb "distributed-system-ikkat/filesystem"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -47,17 +50,19 @@ type CacheEntry struct { // one entry in the cache
 }
 
 type client struct {
-	server pb.FileServiceClient
-	cache  map[string]*CacheEntry
-	lru    []string
+	grpcClient pb.FileServiceClient
+	conn       *grpc.ClientConn
+	cache      map[string]*CacheEntry
+	lru        []string
 }
 
 // intiaiting a new client, given the title of the server from the get-go
-func NewClient(server pb.FileServiceClient) *client { // initiating a client
+func NewClient(grpcClient pb.FileServiceClient, conn *grpc.ClientConn) *client { // initiating a client
 	os.MkdirAll(ClientCacheDir, 0755) // owner rwx, grp r-x, other r-x
 	c := &client{
-		cache:  make(map[string]*CacheEntry),
-		server: server,
+		cache:      make(map[string]*CacheEntry),
+		grpcClient: grpcClient,
+		conn:       conn,
 	}
 	return c
 }
@@ -104,7 +109,7 @@ func (c *client) retryWrite(ctx context.Context, req *pb.WriteRequest) (*pb.Writ
 		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout)
 
 		// ✅ Unary call instead of stream
-		resp, err := c.server.Write(ctx2, req)
+		resp, err := c.grpcClient.Write(ctx2, req)
 
 		cancel()
 
@@ -127,7 +132,7 @@ func (c *client) testAuth(ctx context.Context, filename string) (*pb.TestAuthRes
 		req := &pb.TestAuthRequest{
 			Filename: filename,
 		}
-		r, err := c.server.TestAuth(ctx2, req) // try testauth
+		r, err := c.grpcClient.TestAuth(ctx2, req) // try testauth
 		cancel()
 		if err == nil { // successful write
 			return r, nil
@@ -161,8 +166,17 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 	var resp *pb.OpenResponse
 	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
 		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
-		r, err := c.server.Create(ctx2, req)                 // try sending req
+		r, err := c.grpcClient.Create(ctx2, req)             // try sending req
 		cancel()
+		if err != nil {
+			if leaderAddr, ok := extractLeaderAddr(err); ok {
+				if err := c.reconnectToLeader(leaderAddr); err != nil {
+					return nil, err
+				}
+				lastErr = err
+				continue
+			}
+		}
 		if err == nil { // successful write
 			resp = r
 			lastErr = nil
@@ -227,7 +241,7 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 				ClientId:  clientID,
 			}
 			ctx2, cancel := context.WithTimeout(ctx, rpcTimeout)
-			resp, err := c.server.Open(ctx2, req)
+			resp, err := c.grpcClient.Open(ctx2, req)
 			cancel()
 			if err != nil {
 				return nil, err
@@ -256,8 +270,17 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 	var resp *pb.OpenResponse
 	for attempt := 0; attempt < maxTries; attempt++ { // for maxTries number of tries
 		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout) // setting timeout
-		r, err := c.server.Open(ctx2, req)                   // try sending req
+		r, err := c.grpcClient.Open(ctx2, req)               // try sending req
 		cancel()
+		if err != nil {
+			if leaderAddr, ok := extractLeaderAddr(err); ok {
+				if err := c.reconnectToLeader(leaderAddr); err != nil {
+					return nil, err
+				}
+				lastErr = err
+				continue
+			}
+		}
 		if err == nil { // successful write
 			resp = r
 			lastErr = nil
@@ -331,7 +354,7 @@ func (c *client) Read(ctx context.Context, filename string, clientID string) ([]
 	}
 	ctx = withClientID(ctx, clientID)
 	// Start streaming from server
-	stream, err := c.server.Read(ctx, &pb.ReadRequest{
+	stream, err := c.grpcClient.Read(ctx, &pb.ReadRequest{
 		Filename: filename,
 		Fd:       entry.Fd,
 	})
@@ -455,8 +478,14 @@ func (c *client) Commit(ctx context.Context, filename string, clientID string) e
 	}
 
 	// ✅ Unary call (NO STREAM)
-	resp, err := c.server.Write(ctx, req)
+	resp, err := c.grpcClient.Write(ctx, req)
 	if err != nil {
+		if leaderAddr, ok := extractLeaderAddr(err); ok {
+			if err := c.reconnectToLeader(leaderAddr); err != nil {
+				return err
+			}
+			c.grpcClient.Write(ctx, req)
+		}
 		return err
 	}
 
@@ -504,8 +533,15 @@ func (c *client) Close(ctx context.Context, filename string, clientID string) er
 	}
 
 	// ✅ Unary call (NO STREAM)
-	resp, err := c.server.Close(ctx, req)
+	resp, err := c.grpcClient.Close(ctx, req)
+
 	if err != nil {
+		if leaderAddr, ok := extractLeaderAddr(err); ok {
+			if err := c.reconnectToLeader(leaderAddr); err != nil {
+				return err
+			}
+			c.grpcClient.Close(ctx, req)
+		}
 		return err
 	}
 
@@ -538,8 +574,14 @@ func (c *client) Delete(ctx context.Context, filename string) error {
 		RequestId: generateRequestID(),
 		Filename:  filename,
 	}
-	_, err := c.server.Delete(ctx, req)
+	_, err := c.grpcClient.Delete(ctx, req)
 	if err != nil {
+		if leaderAddr, ok := extractLeaderAddr(err); ok {
+			if err := c.reconnectToLeader(leaderAddr); err != nil {
+				return err
+			}
+			c.grpcClient.Delete(ctx, req)
+		}
 		return err
 	}
 	for i, name := range c.lru { // need to remove it from cache
@@ -563,4 +605,26 @@ func (c *client) ReadFile(filename string, localPath string) ([]byte, error) {
 	}
 	touchLRU(c, filename)
 	return data, nil
+}
+
+func extractLeaderAddr(err error) (string, bool) {
+	msg := err.Error()
+	if !strings.Contains(msg, "not leader") {
+		return "", false
+	}
+	parts := strings.Split(msg, ": ")
+	if len(parts) < 2 {
+		return "", false
+	}
+	return parts[len(parts)-1], true // last part is address
+}
+
+func (c *client) reconnectToLeader(addr string) error {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	c.conn = conn
+	c.grpcClient = pb.NewFileServiceClient(conn)
+	return nil
 }

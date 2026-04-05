@@ -6,6 +6,9 @@ option go_package = "/filesystem";
 
 
 // -------- Recovery --------
+
+
+
 message RecoveryRequest {
   string serverId = 1;
 }
@@ -56,8 +59,8 @@ message AppendEntriesResponse {
 
 // -------- Service --------
 service ReplicationService {
-  rpc AppendEntries(AppendEntriesRequest)
-      returns (AppendEntriesResponse);
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+
 }
 
 service RecoveryService {
