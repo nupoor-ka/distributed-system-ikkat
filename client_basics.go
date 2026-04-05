@@ -199,8 +199,8 @@ func (c *client) Create(ctx context.Context, filename string, clientID string) (
 	if err != nil {
 		return nil, err
 	}
-	file.Close() // closing file on os, does that mean will have to create and then open, not open by default on create?
-	entry := &CacheEntry{
+	file.Close()          // closing file on os, does that mean will have to create and then open, not open by default on create?
+	entry := &CacheEntry{ // mode set to 0 by default, that was cause of error
 		Filename:  filename,
 		LocalPath: localPath,
 		Version:   resp.Version,
@@ -227,7 +227,7 @@ func (c *client) Open(ctx context.Context, filename string, mode pb.FileMode, cl
 		// log.Println("entry version", entry.Version, "ta version", ta_resp.Version)
 		if entry.Version == ta_resp.Version {
 			// log.Println("the versions match")
-			if (entry.Mode != mode) && (entry.Mode == pb.FileMode_READ) { // trying to open in a mode other than current
+			if (!entry.Closed) && (entry.Mode != mode) && (entry.Mode == pb.FileMode_READ) { // trying to open in a mode other than current
 				return nil, status.Error(codes.FailedPrecondition, "file already open in read mode, to open in write, close file then open in write mode")
 			}
 			entry.Valid = true

@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "/filesystem";
+
+import "google/protobuf/empty.proto";
+
+message SnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message ClientState {
+  string client_id = 1;
+  string snapshot_id = 2;
+  string current_file = 3;
+  int64  last_processed_offset = 4; // where it stopped in the "Huge File"
+}
+
+service SnapshotService {
+  rpc InitiateSnapshot (SnapshotRequest) returns (SnapshotResponse);
+  rpc ReportWorkerState (WorkerState) returns (Empty);
+}

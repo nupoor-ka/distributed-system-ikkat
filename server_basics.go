@@ -880,7 +880,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "log persist failed")
 		}
-		ackCount := 1 // self vote
+		ackCount := 1 // self
 		commitIndex := s.commitIndex
 
 		ackCh := make(chan bool, len(s.servers)-1)
@@ -897,31 +897,25 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 			}(peer)
 		}
 
-		// 2. Count alive servers
-		alive := 0
-		for _, srv := range s.servers {
-			if srv.Alive {
-				alive++
-			}
-		}
-		majority := alive/2 + 1
+		// 2. Majority
+		majority := len(s.servers)/2 + 1
 
-		// 3. Wait for ACKs with timeout
+		// 3. Wait until majority OR timeout
 		timeout := time.After(1 * time.Second)
 
-		for i := 0; i < alive-1; i++ {
+		for ackCount < majority {
 			select {
 			case ok := <-ackCh:
 				if ok {
 					ackCount++
 				}
 			case <-timeout:
-				log.Println("⚠️ Replication timeout")
+				log.Println("Replication timeout")
 				break
 			}
 		}
 
-		// 4. Majority check
+		// 4. Final check
 		if ackCount < majority {
 			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
 		}
