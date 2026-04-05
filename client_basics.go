@@ -108,7 +108,7 @@ func (c *client) retryWrite(ctx context.Context, req *pb.WriteRequest) (*pb.Writ
 
 		ctx2, cancel := context.WithTimeout(ctx, rpcTimeout)
 
-		// ✅ Unary call instead of stream
+		// Unary call instead of stream
 		resp, err := c.grpcClient.Write(ctx2, req)
 
 		cancel()
@@ -453,11 +453,11 @@ func (c *client) Commit(ctx context.Context, filename string, clientID string) e
 
 	reqID := generateRequestID()
 
-	// ✅ Timeout (same style as Close)
+	// Timeout (same style as Close)
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	// ✅ Attach metadata
+	// Attach metadata
 	ctx = withClientID(ctx, clientID)
 
 	var data []byte
@@ -477,7 +477,7 @@ func (c *client) Commit(ctx context.Context, filename string, clientID string) e
 		Data:      data,
 	}
 
-	// ✅ Unary call (NO STREAM)
+	// Unary call (NO STREAM)
 	resp, err := c.grpcClient.Write(ctx, req)
 	if err != nil {
 		if leaderAddr, ok := extractLeaderAddr(err); ok {
@@ -489,7 +489,7 @@ func (c *client) Commit(ctx context.Context, filename string, clientID string) e
 		return err
 	}
 
-	// ✅ Update metadata (same as before)
+	// Update metadata
 	entry.Version = resp.Version
 	entry.Dirty = false
 
@@ -506,11 +506,11 @@ func (c *client) Close(ctx context.Context, filename string, clientID string) er
 
 	reqID := generateRequestID()
 
-	// ✅ Timeout
+	// Timeout
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	// ✅ Attach metadata
+	// Attach metadata
 	ctx = withClientID(ctx, clientID)
 
 	var data []byte
@@ -532,7 +532,7 @@ func (c *client) Close(ctx context.Context, filename string, clientID string) er
 		Data:      data,
 	}
 
-	// ✅ Unary call (NO STREAM)
+	// Unary call (NO STREAM)
 	resp, err := c.grpcClient.Close(ctx, req)
 
 	if err != nil {

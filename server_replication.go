@@ -407,7 +407,7 @@ func (s *server) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 🔥 1. Append entries to log
+	// 1. Append entries to log
 	for _, e := range req.Entries {
 		entry := LogEntry{
 			Index:    int(e.Index),
@@ -439,7 +439,7 @@ func (s *server) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest
 	// 3. APPLY COMMITTED LOGS (THIS IS YOUR MISSING PIECE)
 	s.applyCommitted()
 
-	log.Println("✅ Backup applied entries. commitIndex:", s.commitIndex)
+	log.Println("Backup applied entries. commitIndex:", s.commitIndex)
 
 	return &pb.AppendEntriesResponse{Success: true}, nil
 }
@@ -626,12 +626,12 @@ func (s *server) GetLeader(ctx context.Context, _ *emptypb.Empty) (*pb.LeaderRes
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 🔥 Case 1: no leader yet
+	// Case 1: no leader yet
 	if s.primaryID == "" {
 		return nil, status.Errorf(codes.Unavailable, "no leader elected yet")
 	}
 
-	// 🔥 Case 2: leader not found in map
+	// Case 2: leader not found in map
 	leader, ok := s.servers[s.primaryID]
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "leader info missing")
