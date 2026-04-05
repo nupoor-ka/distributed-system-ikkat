@@ -903,6 +903,7 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 		// 3. Wait until majority OR timeout
 		timeout := time.After(1 * time.Second)
 
+	ForLoop:
 		for ackCount < majority {
 			select {
 			case ok := <-ackCh:
@@ -911,10 +912,9 @@ func (s *server) Close(ctx context.Context, req *pb.CloseRequest) (*pb.CloseResp
 				}
 			case <-timeout:
 				log.Println("Replication timeout")
-				break
+				break ForLoop // breaks the FOR loop
 			}
 		}
-
 		// 4. Final check
 		if ackCount < majority {
 			return nil, status.Errorf(codes.Unavailable, "failed to reach majority")
