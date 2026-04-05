@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package pb;
 
+import "google/protobuf/empty.proto";
+
 option go_package = "/filesystem";
 
 
@@ -30,6 +32,11 @@ message UpdateMessage {
   repeated Replication fullFiles = 3;
 }
 
+message LeaderResponse {
+  string leader_id = 1;
+  string address = 2;
+}
+
 
 // -------- Heartbeat --------
 message Heartbeat {
@@ -56,8 +63,8 @@ message AppendEntriesResponse {
 
 // -------- Service --------
 service ReplicationService {
-  rpc AppendEntries(AppendEntriesRequest)
-      returns (AppendEntriesResponse);
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+  rpc GetLeader(google.protobuf.Empty) returns (LeaderResponse);
 }
 
 service RecoveryService {

@@ -11,6 +11,7 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -20,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ReplicationService_AppendEntries_FullMethodName = "/pb.ReplicationService/AppendEntries"
+	ReplicationService_GetLeader_FullMethodName     = "/pb.ReplicationService/GetLeader"
 )
 
 // ReplicationServiceClient is the client API for ReplicationService service.
@@ -29,6 +31,7 @@ const (
 // -------- Service --------
 type ReplicationServiceClient interface {
 	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
+	GetLeader(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LeaderResponse, error)
 }
 
 type replicationServiceClient struct {
@@ -49,6 +52,16 @@ func (c *replicationServiceClient) AppendEntries(ctx context.Context, in *Append
 	return out, nil
 }
 
+func (c *replicationServiceClient) GetLeader(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*LeaderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaderResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_GetLeader_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReplicationServiceServer is the server API for ReplicationService service.
 // All implementations must embed UnimplementedReplicationServiceServer
 // for forward compatibility.
@@ -56,6 +69,7 @@ func (c *replicationServiceClient) AppendEntries(ctx context.Context, in *Append
 // -------- Service --------
 type ReplicationServiceServer interface {
 	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
+	GetLeader(context.Context, *emptypb.Empty) (*LeaderResponse, error)
 	mustEmbedUnimplementedReplicationServiceServer()
 }
 
@@ -68,6 +82,9 @@ type UnimplementedReplicationServiceServer struct{}
 
 func (UnimplementedReplicationServiceServer) AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AppendEntries not implemented")
+}
+func (UnimplementedReplicationServiceServer) GetLeader(context.Context, *emptypb.Empty) (*LeaderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLeader not implemented")
 }
 func (UnimplementedReplicationServiceServer) mustEmbedUnimplementedReplicationServiceServer() {}
 func (UnimplementedReplicationServiceServer) testEmbeddedByValue()                            {}
@@ -108,6 +125,24 @@ func _ReplicationService_AppendEntries_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReplicationService_GetLeader_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).GetLeader(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_GetLeader_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).GetLeader(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReplicationService_ServiceDesc is the grpc.ServiceDesc for ReplicationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -118,6 +153,10 @@ var ReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AppendEntries",
 			Handler:    _ReplicationService_AppendEntries_Handler,
+		},
+		{
+			MethodName: "GetLeader",
+			Handler:    _ReplicationService_GetLeader_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

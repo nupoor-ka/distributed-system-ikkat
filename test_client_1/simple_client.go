@@ -12,6 +12,11 @@ import (
 )
 
 func main() {
+	servers :=[]string {
+		"localhost:5001",
+		"localhost:5002",
+		"localhost:5003",
+	}
 	serverAddr := "localhost:5001" // Update this to your server's address
 
 	// 1. Connect to Server using your DialClient function

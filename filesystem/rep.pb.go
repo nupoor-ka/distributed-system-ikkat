@@ -9,6 +9,7 @@ package filesystem
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -262,6 +263,58 @@ func (x *UpdateMessage) GetFullFiles() []*Replication {
 	return nil
 }
 
+type LeaderResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LeaderId      string                 `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LeaderResponse) Reset() {
+	*x = LeaderResponse{}
+	mi := &file_proto_rep_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LeaderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LeaderResponse) ProtoMessage() {}
+
+func (x *LeaderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_rep_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LeaderResponse.ProtoReflect.Descriptor instead.
+func (*LeaderResponse) Descriptor() ([]byte, []int) {
+	return file_proto_rep_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *LeaderResponse) GetLeaderId() string {
+	if x != nil {
+		return x.LeaderId
+	}
+	return ""
+}
+
+func (x *LeaderResponse) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
 // -------- Heartbeat --------
 type Heartbeat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -273,7 +326,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_proto_rep_proto_msgTypes[4]
+	mi := &file_proto_rep_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -285,7 +338,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_rep_proto_msgTypes[4]
+	mi := &file_proto_rep_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -298,7 +351,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_proto_rep_proto_rawDescGZIP(), []int{4}
+	return file_proto_rep_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Heartbeat) GetPrimaryId() string {
@@ -324,7 +377,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_proto_rep_proto_msgTypes[5]
+	mi := &file_proto_rep_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -336,7 +389,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_rep_proto_msgTypes[5]
+	mi := &file_proto_rep_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -349,7 +402,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_proto_rep_proto_rawDescGZIP(), []int{5}
+	return file_proto_rep_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *HeartbeatResponse) GetSuccess() bool {
@@ -371,7 +424,7 @@ type AppendEntriesRequest struct {
 
 func (x *AppendEntriesRequest) Reset() {
 	*x = AppendEntriesRequest{}
-	mi := &file_proto_rep_proto_msgTypes[6]
+	mi := &file_proto_rep_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -383,7 +436,7 @@ func (x *AppendEntriesRequest) String() string {
 func (*AppendEntriesRequest) ProtoMessage() {}
 
 func (x *AppendEntriesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_rep_proto_msgTypes[6]
+	mi := &file_proto_rep_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -396,7 +449,7 @@ func (x *AppendEntriesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEntriesRequest.ProtoReflect.Descriptor instead.
 func (*AppendEntriesRequest) Descriptor() ([]byte, []int) {
-	return file_proto_rep_proto_rawDescGZIP(), []int{6}
+	return file_proto_rep_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AppendEntriesRequest) GetLeaderId() string {
@@ -429,7 +482,7 @@ type AppendEntriesResponse struct {
 
 func (x *AppendEntriesResponse) Reset() {
 	*x = AppendEntriesResponse{}
-	mi := &file_proto_rep_proto_msgTypes[7]
+	mi := &file_proto_rep_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -441,7 +494,7 @@ func (x *AppendEntriesResponse) String() string {
 func (*AppendEntriesResponse) ProtoMessage() {}
 
 func (x *AppendEntriesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_rep_proto_msgTypes[7]
+	mi := &file_proto_rep_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -454,7 +507,7 @@ func (x *AppendEntriesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendEntriesResponse.ProtoReflect.Descriptor instead.
 func (*AppendEntriesResponse) Descriptor() ([]byte, []int) {
-	return file_proto_rep_proto_rawDescGZIP(), []int{7}
+	return file_proto_rep_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AppendEntriesResponse) GetSuccess() bool {
@@ -468,7 +521,7 @@ var File_proto_rep_proto protoreflect.FileDescriptor
 
 const file_proto_rep_proto_rawDesc = "" +
 	"\n" +
-	"\x0fproto/rep.proto\x12\x02pb\"-\n" +
+	"\x0fproto/rep.proto\x12\x02pb\x1a\x1bgoogle/protobuf/empty.proto\"-\n" +
 	"\x0fRecoveryRequest\x12\x1a\n" +
 	"\bserverId\x18\x01 \x01(\tR\bserverId\"]\n" +
 	"\vReplication\x12\x1a\n" +
@@ -489,6 +542,9 @@ const file_proto_rep_proto_rawDesc = "" +
 	"logEntries\x18\x02 \x03(\v2\f.pb.LogEntryR\n" +
 	"logEntries\x12-\n" +
 	"\tfullFiles\x18\x03 \x03(\v2\x0f.pb.ReplicationR\tfullFiles\"G\n" +
+	"\x0eLeaderResponse\x12\x1b\n" +
+	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\"G\n" +
 	"\tHeartbeat\x12\x1c\n" +
 	"\tprimaryId\x18\x01 \x01(\tR\tprimaryId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"-\n" +
@@ -499,9 +555,10 @@ const file_proto_rep_proto_rawDesc = "" +
 	"\aentries\x18\x02 \x03(\v2\f.pb.LogEntryR\aentries\x12\"\n" +
 	"\fleaderCommit\x18\x03 \x01(\x05R\fleaderCommit\"1\n" +
 	"\x15AppendEntriesResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2Z\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\x93\x01\n" +
 	"\x12ReplicationService\x12D\n" +
-	"\rAppendEntries\x12\x18.pb.AppendEntriesRequest\x1a\x19.pb.AppendEntriesResponse2L\n" +
+	"\rAppendEntries\x12\x18.pb.AppendEntriesRequest\x1a\x19.pb.AppendEntriesResponse\x127\n" +
+	"\tGetLeader\x12\x16.google.protobuf.Empty\x1a\x12.pb.LeaderResponse2L\n" +
 	"\x0fRecoveryService\x129\n" +
 	"\x0fRequestRecovery\x12\x13.pb.RecoveryRequest\x1a\x11.pb.UpdateMessage2I\n" +
 	"\x10HeartbeatService\x125\n" +
@@ -519,29 +576,33 @@ func file_proto_rep_proto_rawDescGZIP() []byte {
 	return file_proto_rep_proto_rawDescData
 }
 
-var file_proto_rep_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_rep_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_proto_rep_proto_goTypes = []any{
 	(*RecoveryRequest)(nil),       // 0: pb.RecoveryRequest
 	(*Replication)(nil),           // 1: pb.Replication
 	(*LogEntry)(nil),              // 2: pb.LogEntry
 	(*UpdateMessage)(nil),         // 3: pb.UpdateMessage
-	(*Heartbeat)(nil),             // 4: pb.Heartbeat
-	(*HeartbeatResponse)(nil),     // 5: pb.HeartbeatResponse
-	(*AppendEntriesRequest)(nil),  // 6: pb.AppendEntriesRequest
-	(*AppendEntriesResponse)(nil), // 7: pb.AppendEntriesResponse
+	(*LeaderResponse)(nil),        // 4: pb.LeaderResponse
+	(*Heartbeat)(nil),             // 5: pb.Heartbeat
+	(*HeartbeatResponse)(nil),     // 6: pb.HeartbeatResponse
+	(*AppendEntriesRequest)(nil),  // 7: pb.AppendEntriesRequest
+	(*AppendEntriesResponse)(nil), // 8: pb.AppendEntriesResponse
+	(*emptypb.Empty)(nil),         // 9: google.protobuf.Empty
 }
 var file_proto_rep_proto_depIdxs = []int32{
 	2, // 0: pb.UpdateMessage.logEntries:type_name -> pb.LogEntry
 	1, // 1: pb.UpdateMessage.fullFiles:type_name -> pb.Replication
 	2, // 2: pb.AppendEntriesRequest.entries:type_name -> pb.LogEntry
-	6, // 3: pb.ReplicationService.AppendEntries:input_type -> pb.AppendEntriesRequest
-	0, // 4: pb.RecoveryService.RequestRecovery:input_type -> pb.RecoveryRequest
-	4, // 5: pb.HeartbeatService.SendHeartbeat:input_type -> pb.Heartbeat
-	7, // 6: pb.ReplicationService.AppendEntries:output_type -> pb.AppendEntriesResponse
-	3, // 7: pb.RecoveryService.RequestRecovery:output_type -> pb.UpdateMessage
-	5, // 8: pb.HeartbeatService.SendHeartbeat:output_type -> pb.HeartbeatResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
+	7, // 3: pb.ReplicationService.AppendEntries:input_type -> pb.AppendEntriesRequest
+	9, // 4: pb.ReplicationService.GetLeader:input_type -> google.protobuf.Empty
+	0, // 5: pb.RecoveryService.RequestRecovery:input_type -> pb.RecoveryRequest
+	5, // 6: pb.HeartbeatService.SendHeartbeat:input_type -> pb.Heartbeat
+	8, // 7: pb.ReplicationService.AppendEntries:output_type -> pb.AppendEntriesResponse
+	4, // 8: pb.ReplicationService.GetLeader:output_type -> pb.LeaderResponse
+	3, // 9: pb.RecoveryService.RequestRecovery:output_type -> pb.UpdateMessage
+	6, // 10: pb.HeartbeatService.SendHeartbeat:output_type -> pb.HeartbeatResponse
+	7, // [7:11] is the sub-list for method output_type
+	3, // [3:7] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
 	3, // [3:3] is the sub-list for extension extendee
 	0, // [0:3] is the sub-list for field type_name
@@ -558,7 +619,7 @@ func file_proto_rep_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_rep_proto_rawDesc), len(file_proto_rep_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

@@ -145,7 +145,7 @@ func (s *server) rebuildVersionTable() {
 		entry := &FileEntry{
 			version: version,
 		}
-
+		entry.cond = sync.NewCond(&entry.mu) //////
 		// Reset locks (important after crash)
 		entry.activeReaders = 0
 		entry.activeWriter = false
@@ -310,6 +310,9 @@ func (s *server) getFileEntry(name string) *FileEntry {
 		entry = &FileEntry{version: 1}
 		entry.cond = sync.NewCond(&entry.mu)
 		s.table[name] = entry
+	}
+	if entry.cond == nil {
+		entry.cond = sync.NewCond(&entry.mu)
 	}
 	return entry
 }

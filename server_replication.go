@@ -555,6 +555,7 @@ func (s *server) RequestRecovery(ctx context.Context, req *pb.RecoveryRequest) (
 func (s *server) RecoverFromLeader() error {
 	s.mu.Lock()
 	leader, ok := s.servers[s.primaryID]
+	log.Println("primary id", s.primaryID)
 	s.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("leader not found")
@@ -587,6 +588,16 @@ func (s *server) Start() {
 // Call this when server starts
 func (s *server) Init() {
 	s.lastHeartbeat = time.Now()
+}
+
+func (s *server) GetLeader(ctx context.Context, _ *pb.Empty) (*pb.LeaderResponse, error) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    leader := s.servers[s.primaryID]
+    return &pb.LeaderResponse{
+        LeaderId: s.primaryID,
+        Address:  leader.Address,
+    }, nil
 }
 
 // Main function

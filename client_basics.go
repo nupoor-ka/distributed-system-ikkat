@@ -564,3 +564,18 @@ func (c *client) ReadFile(filename string, localPath string) ([]byte, error) {
 	touchLRU(c, filename)
 	return data, nil
 }
+
+func (c *client) findLeader() string {
+    for _, addr := range c.knownServers {
+        conn, err := grpc.Dial(addr, grpc.WithInsecure())
+        if err != nil {
+            continue
+        }
+        cli := pb.NewFileServiceClient(conn)
+        resp, err := cli.GetLeader(context.Background(), &pb.Empty{})
+        if err == nil {
+            return resp.Address // leader found
+        }
+    }
+    return ""
+}
